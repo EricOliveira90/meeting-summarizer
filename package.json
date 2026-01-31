@@ -1,0 +1,19 @@
+{
+  "name": "meeting-summarizer-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "start:server": "npm run start --workspace=packages/server",
+    "start:client": "npm run start --workspace=packages/client"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3",
+    "@types/node": "^20.11.0",
+    "rimraf": "^5.0.5",
+    "ts-node": "^10.9.2"
+  }
+}
