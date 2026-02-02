@@ -12,8 +12,8 @@
     "@meeting-summarizer/shared": "1.0.0",
     "axios": "^1.6.7",
     "commander": "^11.1.0",
-    "conf": "^12.0.0",
-    "inquirer": "^9.2.14",
+    "conf": "^10.2.0",
+    "inquirer": "^8.2.6",
     "node-global-key-listener": "^0.1.1",
     "obs-websocket-js": "^5.0.5"
   },

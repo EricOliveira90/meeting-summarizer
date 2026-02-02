@@ -1,4 +1,3 @@
-# AI_CONTEXT.md
 > **System Context & Architectural Guidelines for Meeting Transcriber Project**
 
 ## 1. Project Overview

@@ -35,6 +35,9 @@ logs
 !.vscode/settings.json
 .idea
 
+# Agentic AI
+.gemini
+
 # --- Project Specific ---
 
 # Client: Configuration with passwords
