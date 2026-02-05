@@ -2,11 +2,12 @@ import { program } from 'commander';
 import inquirer from 'inquirer';
 import { recordCommand } from './commands/record';
 import { runSetup } from './setup';
-import { runAudioSetup } from './setup-audio'; // <--- Import added
+import { runAudioSetup } from './setup-audio';
 import { configService } from './services/config';
+import { syncCommand } from './commands/sync';
 
 // Updated Type definitions
-type MenuAction = 'record' | 'settings' | 'audio-setup' | 'exit';
+type MenuAction = 'record' | 'sync' | 'settings' | 'audio-setup' | 'exit';
 
 program
   .name('meeting-cli')
@@ -40,7 +41,8 @@ async function mainMenuLoop() {
         message: 'What would you like to do?',
         choices: [
           { name: 'Start Recording 🔴', value: 'record' },
-          { name: 'Audio Setup 🎙️', value: 'audio-setup' }, // <--- New Option
+          { name: 'Sync & Summarize 🧠', value: 'sync' },
+          { name: 'Audio Setup 🎙️', value: 'audio-setup' },
           { name: 'Settings ⚙️', value: 'settings' },
           { name: 'Exit 🚪', value: 'exit' }
         ]
@@ -58,8 +60,12 @@ async function mainMenuLoop() {
           await ensureConfig();
           await recordCommand();
           break;
-        case 'audio-setup': // <--- New Handler
-          await ensureConfig(); // Ensure basic config (OBS IP/Port) exists first
+        case 'sync':
+          await ensureConfig();
+          await syncCommand();
+          break;
+        case 'audio-setup':
+          await ensureConfig();
           await runAudioSetup();
           break;
         case 'settings':
@@ -102,12 +108,20 @@ program
   });
 
 program
+  .command('sync')
+  .description('Upload and process a recording')
+  .action(async () => {
+    await ensureConfig();
+    await syncCommand();
+  });
+
+program
   .command('settings')
   .description('Run setup wizard')
   .action(runSetup);
 
 program
-  .command('audio') // <--- Optional: Direct CLI command for audio setup
+  .command('audio')
   .description('Run audio device setup')
   .action(async () => {
       await ensureConfig();

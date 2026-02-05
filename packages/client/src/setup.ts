@@ -4,67 +4,90 @@ import { configService } from './services/config';
 export async function runSetup() {
   console.log('Welcome to Meeting Summarizer Setup');
   
-  const currentConfig = configService.getAll();
+  // Fetch current configs using the new typed getter
+  const currentServer = configService.get('server');
+  const currentObs = configService.get('obs');
+  const currentPaths = configService.get('paths');
   
   const answers = await inquirer.prompt([
+    // --- SERVER CONFIG ---
     {
       type: 'input',
-      name: 'serverUrl',
-      message: 'Server URL:',
-      default: currentConfig.serverUrl || 'http://localhost:3000',
+      name: 'serverIp',
+      message: 'Server IP (LAN IP of the backend):',
+      default: currentServer.ip,
     },
+    {
+      type: 'number',
+      name: 'serverPort',
+      message: 'Server Port:',
+      default: currentServer.port,
+    },
+
+    // --- OBS CONFIG ---
     {
       type: 'input',
       name: 'obsIp',
       message: 'OBS WebSocket IP:',
-      default: currentConfig.obs?.ip || '127.0.0.1',
+      default: currentObs.ip,
     },
     {
       type: 'number',
       name: 'obsPort',
       message: 'OBS WebSocket Port:',
-      default: currentConfig.obs?.port || 4455,
+      default: currentObs.port,
     },
     {
       type: 'password',
       name: 'obsPassword',
       message: 'OBS WebSocket Password (optional):',
-      default: currentConfig.obs?.password,
+      default: currentObs.password,
     },
+
+    // --- PATHS CONFIG ---
     {
       type: 'input',
       name: 'outputPath',
       message: 'Output directory for recordings:',
-      default: currentConfig.paths?.output || process.cwd(),
+      default: currentPaths.output,
       filter: (input) => input.trim()
     },
-     {
+    {
       type: 'input',
       name: 'obsidianVault',
       message: 'Obsidian Vault path (optional):',
-      default: currentConfig.paths?.obsidianVault,
+      default: currentPaths.obsidianVault,
       filter: (input) => input.trim()
     }
   ]);
 
-  configService.set('serverUrl', answers.serverUrl);
+  // 1. Save Server Config
+  configService.set('server', {
+    ip: answers.serverIp,
+    port: answers.serverPort
+  });
+
+  // 2. Save OBS Config
   configService.set('obs', {
       ip: answers.obsIp,
       port: answers.obsPort,
       password: answers.obsPassword
   });
   
-  configService.setPath('output', answers.outputPath);
-  if (answers.obsidianVault) {
-      configService.setPath('obsidianVault', answers.obsidianVault);
-  }
+  // 3. Save Paths Config
+  configService.set('paths', {
+    output: answers.outputPath,
+    obsidianVault: answers.obsidianVault || undefined
+  });
   
-  console.log('Configuration saved successfully!');
-  console.log('Config file location:', (configService as any).conf.path);
+  console.log('✅ Configuration saved successfully!');
+  
+  // Accessing the internal store path for user debug info
+  // We cast to 'any' here because 'store' is private, but helpful to show the user.
+  console.log('Config file location:', (configService as any).store.path);
 }
 
 // Basic check to see if running directly
-// In ES modules or ts-node, checking require.main is tricky if pure ESM, but commonjs target is set.
 if (require.main === module) {
     runSetup().catch(console.error);
 }

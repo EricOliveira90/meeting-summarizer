@@ -1,87 +1,80 @@
 import Conf from 'conf';
 import path from 'path';
 
-export interface AppConfig {
-  serverUrl: string;
-  obs: {
-    ip: string;
-    port: number;
-    password?: string;
-  };
-  paths: {
-    output: string;
-    obsidianVault?: string;
-  };
-  devices: {
-    micId?: string;
-    systemId?: string;
-  };
+// 1. Define the specific shapes of your config sections
+interface ObsConfig {
+  ip: string;
+  port: number;
+  password?: string;
 }
 
-const schema = {
-  serverUrl: { type: 'string', default: 'http://localhost:3000' },
+interface ServerConfig { // <--- New Section for the Fastify Server
+  ip: string;
+  port: number;
+}
+
+interface PathConfig {
+  output: string;
+  obsidianVault?: string;
+}
+
+interface AudioConfig {
+  micId?: string;
+  systemId?: string;
+}
+
+// 2. Main Config Interface
+export interface AppConfig {
+  obs: ObsConfig;
+  server: ServerConfig; // <--- Add to Main Interface
+  paths: PathConfig;
+  audio: AudioConfig;
+}
+
+// 3. Defaults
+const defaults: AppConfig = {
   obs: {
-    type: 'object',
-    properties: {
-      ip: { type: 'string', default: '127.0.0.1' },
-      port: { type: 'number', default: 4455 },
-      password: { type: 'string' }
-    }
+    ip: '127.0.0.1',
+    port: 4455,
+    password: '',
+  },
+  server: { // <--- Default values for Server
+    ip: '127.0.0.1', 
+    port: 3000 
   },
   paths: {
-    type: 'object',
-    properties: {
-      output: { type: 'string' },
-      obsidianVault: { type: 'string' }
-    }
+    output: path.join(process.cwd(), 'recordings'),
+    // obsidianVault is optional, so undefined by default
   },
-  devices: {
-    type: 'object',
-    properties: {
-      micId: { type: 'string' },
-      systemId: { type: 'string' }
-    }
-  }
+  audio: {}
 };
 
 class ConfigService {
-  private conf: Conf<AppConfig>;
+  private store: Conf<AppConfig>;
 
   constructor() {
-    this.conf = new Conf<AppConfig>({
-        projectName: 'meeting-summarizer-client',
-        // @ts-ignore - Schema typing in conf can be tricky with nested objects
-        schema: schema 
+    this.store = new Conf<AppConfig>({
+      projectName: 'meeting-cli',
+      defaults
     });
   }
 
-  get<K extends keyof AppConfig>(key: K): AppConfig[K] {
-    return this.conf.get(key);
+  /**
+   * GENERIC GETTER:
+   * This signature tells TypeScript: 
+   * "If I ask for 'server', I am GUARANTEED to get back 'ServerConfig'"
+   */
+  public get<K extends keyof AppConfig>(key: K): AppConfig[K] {
+    return this.store.get(key);
   }
 
-  set<K extends keyof AppConfig>(key: K, value: AppConfig[K]): void {
-    if (key === 'paths') {
-       const paths = value as AppConfig['paths'];
-       if (paths.output) paths.output = path.normalize(paths.output);
-       if (paths.obsidianVault) paths.obsidianVault = path.normalize(paths.obsidianVault);
-       this.conf.set(key, paths);
-    } else {
-       this.conf.set(key, value);
-    }
-  }
-  
-  setPath(key: keyof AppConfig['paths'], value: string) {
-      const currentPaths = this.get('paths') || {};
-      this.set('paths', { ...currentPaths, [key]: path.normalize(value) });
+  public set<K extends keyof AppConfig>(key: K, value: AppConfig[K]): void {
+    this.store.set(key, value);
   }
 
-  getAll(): AppConfig {
-      return this.conf.store;
-  }
-  
-  hasConfigured(): boolean {
-      const c = this.getAll();
-      return !!(c.serverUrl && c.paths?.output);
+  public hasConfigured(): boolean {
+    // Simple check to see if we have valid paths
+    return !!this.store.get('paths').output;
   }
 }
 

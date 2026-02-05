@@ -7,7 +7,7 @@ export async function runAudioSetup() {
   const connected = await obsService.connect();
   
   if (!connected) {
-    console.error('Could not connect to OBS. Please check your OBS WebSocket settings in config.');
+    console.error('❌ Could not connect to OBS. Please check your OBS WebSocket settings in config.');
     return;
   }
 
@@ -16,8 +16,11 @@ export async function runAudioSetup() {
     const speakers = await obsService.getAvailableAudioOutputs();
 
     if (microphones.length === 0 || speakers.length === 0) {
-        console.warn('Warning: Could not find audio devices. Is OBS running and are sources available?');
+        console.warn('⚠️ Warning: Could not find audio devices. Is OBS running and are sources available?');
     }
+
+    // Get current audio config using the new 'audio' key
+    const currentAudio = configService.get('audio');
 
     const answers = await inquirer.prompt([
       {
@@ -25,18 +28,19 @@ export async function runAudioSetup() {
         name: 'micId',
         message: 'Select Microphone to Record:',
         choices: microphones,
-        default: configService.get('devices')?.micId
+        default: currentAudio.micId
       },
       {
         type: 'list',
         name: 'systemId',
         message: 'Select System/Desktop Audio to Record:',
         choices: speakers,
-        default: configService.get('devices')?.systemId
+        default: currentAudio.systemId
       }
     ]);
 
-    configService.set('devices', {
+    // Save using the new 'audio' key and AudioConfig interface
+    configService.set('audio', {
       micId: answers.micId,
       systemId: answers.systemId
     });
@@ -44,10 +48,10 @@ export async function runAudioSetup() {
     console.log('Setting up OBS Scene "Meeting Recording"...');
     await obsService.setupScene(answers.micId, answers.systemId);
     
-    console.log('Audio configuration saved and OBS scene updated!');
+    console.log('✅ Audio configuration saved and OBS scene updated!');
 
   } catch (error) {
-    console.error('Error during audio setup:', error);
+    console.error('❌ Error during audio setup:', error);
   } finally {
     await obsService.disconnect();
   }
