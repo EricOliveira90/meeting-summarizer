@@ -2,6 +2,7 @@ import axios, { AxiosInstance } from 'axios';
 import fs from 'fs';
 import FormData from 'form-data';
 import { configService } from './config';
+import { UploadOptions } from '../../../shared/src'; 
 
 export interface JobStatus {
   id: string;
@@ -21,21 +22,17 @@ export interface UploadResponse {
 
 class ApiService {
   private get client(): AxiosInstance {
-    // Dynamic config retrieval allows user to change IP without restart
     const { ip, port } = configService.get('server');
     const baseURL = `http://${ip}:${port}`;
     
     return axios.create({
       baseURL,
-      timeout: 10000, // 10s timeout for standard requests
-      maxContentLength: Infinity, // Allow large responses
-      maxBodyLength: Infinity // Allow large uploads
+      timeout: 10000,
+      maxContentLength: Infinity,
+      maxBodyLength: Infinity
     });
   }
 
-  /**
-   * Checks if the processing server is online.
-   */
   public async checkHealth(): Promise<boolean> {
     try {
       const res = await this.client.get('/');
@@ -46,26 +43,28 @@ class ApiService {
   }
 
   /**
-   * Uploads the MKV file to the server for processing.
-   * Uses streams to handle large files efficiently.
+   * Uploads the MKV file along with processing options.
    */
-  public async uploadMeeting(filePath: string): Promise<UploadResponse> {
+  public async uploadMeeting(filePath: string, options: UploadOptions): Promise<UploadResponse> {
     if (!fs.existsSync(filePath)) {
       throw new Error(`File not found: ${filePath}`);
     }
 
     const form = new FormData();
-    // 'file' matches the field name expected in server/src/index.ts
     form.append('file', fs.createReadStream(filePath));
+    
+    // Append the new metadata fields
+    form.append('language', options.language);
+    form.append('template', options.template);
 
     try {
-      console.log(`🚀 Uploading ${filePath} to server...`);
+      console.log(`🚀 Uploading to server [Lang: ${options.language} | Tmpl: ${options.template}]...`);
       
       const response = await this.client.post<UploadResponse>('/upload', form, {
         headers: {
-          ...form.getHeaders(), // Critical: sets the Content-Type boundary
+          ...form.getHeaders(),
         },
-        timeout: 0, // No timeout for uploads (large files take time)
+        timeout: 0, 
       });
 
       return response.data;
@@ -75,9 +74,6 @@ class ApiService {
     }
   }
 
-  /**
-   * Fetches the current status of a specific job.
-   */
   public async getJobStatus(jobId: string): Promise<JobStatus> {
     try {
       const response = await this.client.get<JobStatus>(`/jobs/${jobId}`);
@@ -88,9 +84,6 @@ class ApiService {
     }
   }
 
-  /**
-   * Fetches all jobs (history).
-   */
   public async getJobs(): Promise<JobStatus[]> {
     try {
       const response = await this.client.get<JobStatus[]>('/jobs');
@@ -101,9 +94,6 @@ class ApiService {
     }
   }
 
-  /**
-   * Centralized error logging
-   */
   private handleError(error: any) {
     if (axios.isAxiosError(error)) {
       const msg = error.response?.data?.error || error.message;

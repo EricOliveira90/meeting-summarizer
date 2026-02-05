@@ -3,13 +3,15 @@ import path from 'path';
 import inquirer from 'inquirer';
 import { apiService, JobStatus } from '../services/api';
 import { configService } from '../services/config';
+import { TranscriptionLanguage, SummaryTemplate } from '../../../shared/src'; 
 
 /**
  * Main Sync Command
  * 1. Checks Server Health
  * 2. Selects a Recording
- * 3. Uploads & Polls
- * 4. Saves to Obsidian
+ * 3. Selects Processing Options (Language & Template)
+ * 4. Uploads & Polls
+ * 5. Saves to Obsidian
  */
 export async function syncCommand() {
   console.log('🔄 Initializing Sync Workflow...');
@@ -32,10 +34,42 @@ export async function syncCommand() {
 
   const filePath = path.join(recordingDir, selectedFile);
 
+  // 3. Select Processing Options
+  const options = await inquirer.prompt([
+    {
+      type: 'list',
+      name: 'language',
+      message: 'Select Audio Language (Whisper):',
+      choices: [
+        { name: 'Auto Detect 🤖', value: TranscriptionLanguage.AUTO },
+        { name: 'English (US) 🇺🇸', value: TranscriptionLanguage.ENGLISH },
+        { name: 'Portuguese (BR) 🇧🇷', value: TranscriptionLanguage.PORTUGUESE },
+        { name: 'Spanish 🇪🇸', value: TranscriptionLanguage.SPANISH },
+      ],
+      default: TranscriptionLanguage.AUTO
+    },
+    {
+      type: 'list',
+      name: 'template',
+      message: 'Select Summary Style (Gemini):',
+      choices: [
+        { name: 'Meeting Minutes 📝 (Action Items, Decisions)', value: SummaryTemplate.MEETING },
+        { name: 'Training/Lecture 🎓 (Key Concepts, Q&A)', value: SummaryTemplate.TRAINING },
+        { name: 'Brief Summary 📄 (TL;DR)', value: SummaryTemplate.SUMMARY },
+      ],
+      default: SummaryTemplate.MEETING
+    }
+  ]);
+
   try {
-    // 3. Upload
+    // 4. Upload
     console.log(`\n📤 Uploading: ${selectedFile}`);
-    const uploadResult = await apiService.uploadMeeting(filePath);
+    
+    // Updated to pass the options object
+    const uploadResult = await apiService.uploadMeeting(filePath, {
+      language: options.language,
+      template: options.template
+    });
     
     if (!uploadResult.success) {
       console.error(`❌ Upload failed: ${uploadResult.message}`);
@@ -44,11 +78,11 @@ export async function syncCommand() {
 
     console.log(`✅ Upload Complete. Job ID: ${uploadResult.jobId}`);
 
-    // 4. Poll for Completion
+    // 5. Poll for Completion
     const completedJob = await pollForCompletion(uploadResult.jobId);
 
     if (completedJob) {
-      // 5. Generate Markdown in Obsidian
+      // 6. Generate Markdown in Obsidian
       await saveToObsidian(completedJob, selectedFile);
     }
 

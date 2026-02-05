@@ -24,3 +24,23 @@ export interface ClientConfig {
   micDeviceId?: string;
   desktopDeviceId?: string;
 }
+
+// UPLOAD OPTIONS
+
+export enum TranscriptionLanguage {
+  AUTO = 'auto',
+  ENGLISH = 'en',
+  PORTUGUESE = 'pt',
+  SPANISH = 'es'
+}
+
+export enum SummaryTemplate {
+  MEETING = 'meeting',   // Standard minutes, action items
+  TRAINING = 'training', // Educational summary, key concepts, Q&A
+  SUMMARY = 'summary'    // Brief overview, TL;DR
+}
+
+export interface UploadOptions {
+  language: TranscriptionLanguage;
+  template: SummaryTemplate;
+}
