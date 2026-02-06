@@ -2,7 +2,7 @@ import axios, { AxiosInstance } from 'axios';
 import fs from 'fs';
 import FormData from 'form-data';
 import { configService } from './config';
-import { UploadOptions } from '../../../shared/src'; 
+import { UploadOptions } from '@shared'; 
 
 export interface JobStatus {
   id: string;

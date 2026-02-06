@@ -3,7 +3,7 @@ import path from 'path';
 import inquirer from 'inquirer';
 import { apiService, JobStatus } from '../services/api';
 import { configService } from '../services/config';
-import { TranscriptionLanguage, SummaryTemplate } from '../../../shared/src'; 
+import { TranscriptionLanguage, SummaryTemplate } from '@shared'; 
 
 /**
  * Main Sync Command

@@ -6,7 +6,7 @@
   },
   "scripts": {
     "build": "rimraf dist && tsc",
-    "start": "ts-node src/index.ts"
+    "start": "ts-node -r tsconfig-paths/register src/index.ts"
   },
   "dependencies": {
     "@meeting-summarizer/shared": "1.0.0",
@@ -20,6 +20,7 @@
   },
   "devDependencies": {
     "@types/inquirer": "^9.0.7",
-    "@types/node": "^20.11.0"
+    "@types/node": "^20.11.0",
+    "tsconfig-paths": "^4.2.0"
   }
 }
