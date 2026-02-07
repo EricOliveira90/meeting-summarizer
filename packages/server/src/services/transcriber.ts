@@ -1,60 +1,88 @@
 import { spawn } from 'child_process';
 import path from 'path';
+import fs from 'fs';
 
 export interface TranscriptionResult {
   text: string;
-  language: string;
-  deviceUsed: string;
+  outputFilePath: string;
+}
+
+const TRANSCRIPTIONS_DIR = path.join(process.cwd(), 'transcriptions');
+const WHISPER_MODEL = 'turbo';
+
+// Ensure directory exists on startup
+if (!fs.existsSync(TRANSCRIPTIONS_DIR)) {
+  fs.mkdirSync(TRANSCRIPTIONS_DIR, { recursive: true });
 }
 
 export class TranscriptionService {
-  public async transcribe(audioPath: string): Promise<TranscriptionResult> {
+  private readonly venvPythonPath = path.join(process.cwd(), 'venv-whisperx', 'Scripts', 'python.exe');
+  private readonly scriptPath = path.join(process.cwd(), 'scripts', 'whisper-x.py');
+  private readonly hfToken = process.env.HUGGING_FACE_TOKEN; 
+
+  public async transcribe(audioPath: string, language?: string): Promise<TranscriptionResult> {
     return new Promise((resolve, reject) => {
-      // 1. "process" here now correctly refers to the global Node.js object
-      const scriptPath = path.join(process.cwd(), 'scripts', 'transcribe.py');
+      
+      if (!fs.existsSync(this.venvPythonPath)) {
+        return reject(new Error(`Virtual Environment Python not found at: ${this.venvPythonPath}`));
+      }
 
-      console.log(`🎙️  Spawning Whisper process on: ${audioPath}`);
+      // 1. Prepare Output Path in the dedicated 'transcriptions' folder
+      // We use the same basename as the audio file but change extension to .txt
+      const parsedPath = path.parse(audioPath);
+      const outputTxtPath = path.join(TRANSCRIPTIONS_DIR, `${parsedPath.name}.txt`);
 
-      // 2. RENAME: Changed 'process' to 'pythonProcess' to avoid naming conflict
-      const pythonProcess = spawn('python', [scriptPath, audioPath]);
+      console.log(`🎙️  Spawning WhisperX on: ${parsedPath.base}`);
+      console.log(`📂  Target Output: ${outputTxtPath}`);
+
+      // 2. Build Arguments
+      const args = [
+        this.scriptPath,
+        audioPath,
+        '--model', WHISPER_MODEL,
+        '--batch_size', '32',
+        '--hf_token', this.hfToken || '', 
+        '--output_file', outputTxtPath // Python will write directly here
+      ];
+
+      if (language && language !== 'auto') {
+        args.push('--language', language);
+      }
+
+      // 3. Spawn Process
+      const pythonProcess = spawn(this.venvPythonPath, args);
 
       let stdoutData = '';
       let stderrData = '';
 
-      // 3. Update all references below to use the new name
-      pythonProcess.stdout.on('data', (data) => {
-        stdoutData += data.toString();
-      });
+      pythonProcess.stdout.on('data', (data) => { stdoutData += data.toString(); });
+      pythonProcess.stderr.on('data', (data) => { stderrData += data.toString(); });
 
-      pythonProcess.stderr.on('data', (data) => {
-        stderrData += data.toString();
-      });
-
-      pythonProcess.on('close', (code) => {
+      pythonProcess.on('close', async (code) => {
         if (code !== 0) {
-          console.error(`❌ Whisper process exited with code ${code}`);
+          try {
+             const errorJson = JSON.parse(stdoutData);
+             if (errorJson.error) return reject(new Error(`WhisperX Error: ${errorJson.error}`));
+          } catch (e) {}
+          console.error(`❌ Process exited with code ${code}`);
           console.error(`   Stderr: ${stderrData}`);
-          return reject(new Error(`Transcription failed: ${stderrData}`));
+          return reject(new Error(`Transcription failed with code ${code}`));
         }
 
+        // 4. Success - Read the file back into memory for the return value
         try {
-          const result = JSON.parse(stdoutData);
-
-          if (result.error) {
-            return reject(new Error(result.error));
-          }
-
-          console.log(`✅ Transcription complete (${result.text.length} chars) using ${result.device_used}`);
-          
-          resolve({
-            text: result.text,
-            language: result.language,
-            deviceUsed: result.device_used
-          });
-
-        } catch (err) {
-          console.error('❌ Failed to parse Python output:', stdoutData);
-          reject(new Error('Invalid JSON response from transcription script'));
+            if (!fs.existsSync(outputTxtPath)) {
+                return reject(new Error(`Process success, but file missing: ${outputTxtPath}`));
+            }
+            const fileContent = await fs.promises.readFile(outputTxtPath, 'utf-8');
+            console.log(`✅ Transcription saved.`);
+            
+            resolve({
+              text: fileContent.trim(),
+              outputFilePath: outputTxtPath
+            });
+        } catch (readError: any) {
+            return reject(new Error(`Failed to read transcript: ${readError.message}`));
         }
       });
     });

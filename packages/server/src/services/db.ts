@@ -9,9 +9,11 @@ export interface JobRecord {
   filePath: string;
   uploadDate: string;
   status: 'PENDING' | 'EXTRACTING' | 'TRANSCRIBING' | 'SUMMARIZING' | 'COMPLETED' | 'FAILED';
+  language?: string; // e.g. 'auto', 'en', 'pt'
+  template?: string; // e.g. 'meeting', 'training', 'summary'
   audioPath?: string;
-  transcript?: string;
-  summary?: string;
+  transcriptPath?: string;
+  summaryPath?: string;
   error?: string;
 }
 

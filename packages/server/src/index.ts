@@ -9,48 +9,33 @@ import { meetingQueue } from './services/queue';
 import { getDb, JobRecord } from './services/db';
 
 const PORT = parseInt(process.env.PORT || '3000');
-const HOST = '0.0.0.0'; // Listen on all interfaces (LAN access)
+const HOST = '0.0.0.0'; 
 
-// Initialize Fastify
 const server = Fastify({
-  logger: true, // Enable built-in logging
-  bodyLimit: 1048576 * 500, // Limit uploads to 500MB (adjust as needed)
+  logger: true, 
+  bodyLimit: 1048576 * 500, 
 });
 
-// Register Plugins
-server.register(cors, { origin: '*' }); // Allow LAN connections
+server.register(cors, { origin: '*' }); 
 server.register(multipart);
 
-// Ensure Upload Directory Exists
 const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
 if (!fs.existsSync(UPLOAD_DIR)) {
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 }
 
-/**
- * ROUTE: GET /
- * Health check to verify server is online
- */
 server.get('/', async () => {
   return { status: 'online', service: 'Meeting Transcriber Server' };
 });
 
-/**
- * ROUTE: POST /upload
- * Handles the .mkv file upload from the Client CLI
- */
 server.post('/upload', async (req, reply) => {
   const data = await req.file();
-
-  if (!data) {
-    return reply.status(400).send({ error: 'No file uploaded' });
-  }
+  if (!data) return reply.status(400).send({ error: 'No file uploaded' });
 
   const fileId = randomUUID();
   const safeFilename = `${fileId}_${data.filename.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
   const savePath = path.join(UPLOAD_DIR, safeFilename);
 
-  // Stream file to disk
   await new Promise<void>((resolve, reject) => {
     const pump = fs.createWriteStream(savePath);
     data.file.pipe(pump);
@@ -58,7 +43,6 @@ server.post('/upload', async (req, reply) => {
     pump.on('error', reject);
   });
 
-  // Create Job Record
   const newJob: JobRecord = {
     id: fileId,
     originalFilename: data.filename,
@@ -67,30 +51,18 @@ server.post('/upload', async (req, reply) => {
     status: 'PENDING'
   };
 
-  // Save to DB
   const db = await getDb();
   db.data.jobs.push(newJob);
   await db.write();
 
-  // Add to Processing Queue
   meetingQueue.push({ jobId: newJob.id, filePath: savePath });
-
   console.log(`📥 Upload received: ${data.filename} -> Job ${fileId}`);
 
-  return { 
-    success: true, 
-    jobId: fileId, 
-    message: 'File uploaded and queued for processing.' 
-  };
+  return { success: true, jobId: fileId, message: 'File queued.' };
 });
 
-/**
- * ROUTE: GET /jobs
- * Returns all jobs so the Client can poll for status updates
- */
 server.get('/jobs', async () => {
   const db = await getDb();
-  // Return jobs sorted by newest first
   return db.data.jobs.sort((a, b) => 
     new Date(b.uploadDate).getTime() - new Date(a.uploadDate).getTime()
   );
@@ -98,24 +70,41 @@ server.get('/jobs', async () => {
 
 /**
  * ROUTE: GET /jobs/:id
- * Get details for a specific job
+ * HYDRATION: Reads transcript AND summary from disk on request.
  */
 server.get<{ Params: { id: string } }>('/jobs/:id', async (req, reply) => {
   const db = await getDb();
   const job = db.data.jobs.find(j => j.id === req.params.id);
 
-  if (!job) {
-    return reply.status(404).send({ error: 'Job not found' });
+  if (!job) return reply.status(404).send({ error: 'Job not found' });
+
+  const responsePayload = { ...job } as any;
+
+  // 1. Load Transcript
+  if (job.transcriptPath && fs.existsSync(job.transcriptPath)) {
+    try {
+      responsePayload.transcript = await fs.promises.readFile(job.transcriptPath, 'utf-8');
+    } catch (err) {
+      responsePayload.transcriptError = "File not found.";
+    }
   }
-  return job;
+
+  // 2. Load Summary
+  if (job.summaryPath && fs.existsSync(job.summaryPath)) {
+    try {
+      responsePayload.summary = await fs.promises.readFile(job.summaryPath, 'utf-8');
+    } catch (err) {
+      responsePayload.summaryError = "File not found.";
+    }
+  }
+
+  return responsePayload;
 });
 
-// Start the Server
 const start = async () => {
   try {
     await server.listen({ port: PORT, host: HOST });
     console.log(`\n🚀 Server listening at http://${HOST}:${PORT}`);
-    console.log(`📂 Uploads saving to: ${UPLOAD_DIR}`);
   } catch (err) {
     server.log.error(err);
     process.exit(1);

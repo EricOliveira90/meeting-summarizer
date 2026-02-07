@@ -1,59 +1,79 @@
 import { GoogleGenAI } from "@google/genai";
+import { PROMPTS } from '../config/prompts';
+import path from 'path';
+import fs from 'fs';
 
-// Requires GEMINI_API_KEY in your packages/server/.env file
 const API_KEY = process.env.GEMINI_API_KEY || '';
+const SUMMARIES_DIR = path.join(process.cwd(), 'summaries');
+
+// Ensure directory exists
+if (!fs.existsSync(SUMMARIES_DIR)) {
+  fs.mkdirSync(SUMMARIES_DIR, { recursive: true });
+}
+
+export interface SummaryResult {
+  text: string;
+  summaryPath: string;
+}
 
 export class SummaryService {
   private ai: GoogleGenAI;
-  // Use 'gemini-1.5-flash' for stability, or 'gemini-2.0-flash' if available in your region
-  private modelId = 'gemini-2.5-flash'; 
+  private modelId = 'gemini-2.5-flash';
 
   constructor() {
     if (!API_KEY) {
       console.warn('⚠️ GEMINI_API_KEY is missing. Summarization will fail.');
     }
-    // Initialize the new client
     this.ai = new GoogleGenAI({ apiKey: API_KEY });
   }
 
   /**
-   * Generates a structured summary from a raw transcript.
-   * @param transcript - The full text of the meeting
-   * @returns Promise resolving to the markdown summary
+   * Generates a structured summary and saves it to a file.
+   * @param transcript The full text.
+   * @param fileId The job ID to name the file (e.g. "uuid_summary.txt").
+   * @param templateKey The type of summary.
    */
-  public async summarize(transcript: string): Promise<string> {
+  public async summarize(transcript: string, fileId: string, templateKey: string = 'meeting'): Promise<SummaryResult> {
     if (!transcript || transcript.trim().length === 0) {
       throw new Error('Transcript is empty. Cannot summarize.');
     }
 
-    console.log(`🧠 Sending transcript (${transcript.length} chars) to Gemini (${this.modelId})...`);
-
-    const prompt = `
-      Responda de forma empática à história que a Amanda está contando abaixo.
-      
-      Aqui está a história:
-      "${transcript}"
-    `;
+    const systemInstruction = PROMPTS[templateKey] || PROMPTS['meeting'];
+    console.log(`🧠 Sending transcript to Gemini [Template: ${templateKey}]...`);
 
     try {
-      // New SDK call structure
       const response = await this.ai.models.generateContent({
         model: this.modelId,
-        contents: prompt, // In the new SDK, 'contents' can be a simple string for text-only
+        contents: [
+            { role: 'user', parts: [{ text: systemInstruction }] },
+            { role: 'user', parts: [{ text: `TRANSCRIPT:\n${transcript}` }] }
+        ]
       });
 
-      // The new SDK exposes text directly on the response object
       if (response.text) {
-        console.log('✅ Gemini Summary Generated.');
-        return response.text;
+        const summaryText = response.text;
+        
+        // Save to file
+        const filename = `${fileId}_summary.txt`;
+        const summaryPath = path.join(SUMMARIES_DIR, filename);
+        
+        await fs.promises.writeFile(summaryPath, summaryText, 'utf-8');
+
+        console.log(`✅ Gemini Summary saved to: ${filename}`);
+        
+        return {
+          text: summaryText,
+          summaryPath: summaryPath
+        };
       } 
       
       throw new Error('No text returned from Gemini API');
 
     } catch (error: any) {
       console.error('❌ Gemini API Error:', error);
-      // Fallback: Return formatted error so the file is still saved
-      return `**Error Generating Summary:** ${error.message || error}\n\n(The raw transcript is safe)`;
+      // Even if it fails, we might want to throw so the job is marked as failed, 
+      // or return a basic error text file. Here we throw to let the queue handle it.
+      throw new Error(`Gemini Error: ${error.message || error}`);
     }
   }
 }

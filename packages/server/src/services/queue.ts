@@ -1,121 +1,103 @@
 import Queue from 'better-queue';
 import path from 'path';
+import fs from 'fs';
 import { audioExtractionService } from './audio-extractor';
 import { getDb, JobRecord } from './db';
 import { transcriptionService } from './transcriber';
 import { summaryService } from './summarizer';
 
-// Interface for the data passed into the Queue
 interface QueueInput {
   jobId: string;
   filePath: string;
 }
 
-/**
- * The Worker Function
- * This runs inside the queue for each job.
- */
 const processMeeting = async (input: QueueInput, cb: (err?: any, result?: any) => void) => {
   const { jobId, filePath } = input;
   const db = await getDb();
   
+  const jobRecord = db.data.jobs.find(j => j.id === jobId);
+  
+  const language = jobRecord?.language || 'auto';
+  const template = jobRecord?.template || 'meeting';
+
   try {
     console.log(`\n⚙️  [Job ${jobId}] Processing started...`);
 
-    // --- STEP 1: UPDATE STATUS TO EXTRACTING ---
+    // --- STEP 1: EXTRACT AUDIO ---
     await updateJobStatus(jobId, 'EXTRACTING');
     
-    // Define output directory for audio (sister folder to uploads)
-    // Assuming filePath is something like 'uploads/video.mkv'
-    const audioOutputDir = path.join(path.dirname(filePath), '..', 'audio_cache');
-    
-    // --- STEP 2: EXTRACT AUDIO ---
+    const audioOutputDir = path.join(process.cwd(), 'audio_cache'); 
+    // Ensure audio cache exists just in case
+    if (!fs.existsSync(audioOutputDir)) fs.mkdirSync(audioOutputDir, { recursive: true });
+
     const extractionResult = await audioExtractionService.convertToWav(filePath, audioOutputDir);
     
-    // Save the audio path to DB
-    const jobIndex = db.data.jobs.findIndex(j => j.id === jobId);
-    if (jobIndex >= 0) {
-      db.data.jobs[jobIndex].audioPath = extractionResult.audioPath;
-      await db.write();
+    await updateJobData(jobId, { audioPath: extractionResult.audioPath });
+
+    // CLEANUP: Delete the original upload (MKV) now that we have the WAV
+    try {
+      await fs.promises.unlink(filePath);
+      console.log(`🗑️  Deleted original source file: ${path.basename(filePath)}`);
+    } catch (err) {
+      console.warn(`⚠️  Could not delete source file: ${filePath}`, err);
     }
 
-    // --- STEP 3: TRANSCRIBE ---
+    // --- STEP 2: TRANSCRIBE ---
     await updateJobStatus(jobId, 'TRANSCRIBING');
-    console.log(`   [Job ${jobId}] Audio ready at: ${extractionResult.audioPath}`);
-    console.log(`   [Job ${jobId}] ⏳ Sending to Whisper (Python)...`);
     
-    const transResult = await transcriptionService.transcribe(extractionResult.audioPath);
+    // The service now saves to 'packages/server/transcriptions' automatically
+    const transResult = await transcriptionService.transcribe(extractionResult.audioPath, language);
 
-    // Save Transcript to DB
-    const jobIndexTrans = db.data.jobs.findIndex(j => j.id === jobId);
-    if (jobIndexTrans >= 0) {
-      db.data.jobs[jobIndexTrans].transcript = transResult.text;
-      await db.write();
-    }
+    // Save the PATH to the DB
+    await updateJobData(jobId, { transcriptPath: transResult.outputFilePath });
 
-    // --- STEP 4: SUMMARIZE
+    // --- STEP 3: SUMMARIZE ---
     await updateJobStatus(jobId, 'SUMMARIZING');
-    console.log(`   [Job ${jobId}] 🧠 Generating Summary with Gemini...`);
-
-    const summary = await summaryService.summarize(transResult.text);
     
-    // Save Summary to DB
-    const jobIndexSum = db.data.jobs.findIndex(j => j.id === jobId);
-    if (jobIndexSum >= 0) {
-      db.data.jobs[jobIndexSum].summary = summary;
-      await db.write();
-    }
+    // Pass the raw text + jobId (for filename) + template
+    const sumResult = await summaryService.summarize(transResult.text, jobId, template);
+    
+    // Save the PATH to the DB
+    await updateJobData(jobId, { summaryPath: sumResult.summaryPath });
 
-    // --- STEP 5: COMPLETE ---
+    // --- STEP 4: COMPLETE ---
     await updateJobStatus(jobId, 'COMPLETED');
     
     cb(null, { 
       success: true, 
       audio: extractionResult.audioPath,
-      transcriptLength: transResult.text.length,
-      summaryLength: summary.length
+      transcriptPath: transResult.outputFilePath,
+      summaryPath: sumResult.summaryPath
     });
 
   } catch (error: any) {
     console.error(`❌ [Job ${jobId}] Failed:`, error.message);
-    
-    // Log error to DB
-    const jobIndex = db.data.jobs.findIndex(j => j.id === jobId);
-    if (jobIndex >= 0) {
-      db.data.jobs[jobIndex].status = 'FAILED';
-      db.data.jobs[jobIndex].error = error.message;
-      await db.write();
-    }
-    
+    await updateJobData(jobId, { status: 'FAILED', error: error.message });
     cb(error);
   }
 };
 
-/**
- * Queue Configuration
- */
 export const meetingQueue = new Queue<QueueInput, any>(processMeeting, {
-  concurrent: 1, // Process one meeting at a time to save CPU/RAM for Whisper
-  afterProcessDelay: 1000, // Cool down between jobs
+  concurrent: 1, 
+  afterProcessDelay: 1000, 
 });
 
-// Queue Events for global logging
-meetingQueue.on('task_finish', (taskId, result) => {
-  console.log(`✅ [Job] Task finished successfully.`);
-});
+// --- Helpers ---
 
-meetingQueue.on('task_failed', (taskId, err) => {
-  console.error(`💥 [Job] Task failed globally: ${err}`);
-});
-
-/**
- * Helper to update DB status safely
- */
 async function updateJobStatus(id: string, status: JobRecord['status']) {
   const db = await getDb();
   const job = db.data.jobs.find(j => j.id === id);
   if (job) {
     job.status = status;
+    await db.write();
+  }
+}
+
+async function updateJobData(id: string, data: Partial<JobRecord>) {
+  const db = await getDb();
+  const index = db.data.jobs.findIndex(j => j.id === id);
+  if (index !== -1) {
+    db.data.jobs[index] = { ...db.data.jobs[index], ...data };
     await db.write();
   }
 }
