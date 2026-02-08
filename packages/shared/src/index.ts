@@ -43,4 +43,6 @@ export enum SummaryTemplate {
 export interface UploadOptions {
   language: TranscriptionLanguage;
   template: SummaryTemplate;
+  minSpeakers?: number;
+  maxSpeakers?: number;
 }

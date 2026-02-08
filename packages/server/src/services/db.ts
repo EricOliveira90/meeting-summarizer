@@ -2,15 +2,20 @@ import { Low } from 'lowdb';
 import { JSONFile } from 'lowdb/node';
 import path from 'path';
 
-// Define the shape of a Job
 export interface JobRecord {
   id: string;
   originalFilename: string;
   filePath: string;
   uploadDate: string;
   status: 'PENDING' | 'EXTRACTING' | 'TRANSCRIBING' | 'SUMMARIZING' | 'COMPLETED' | 'FAILED';
-  language?: string; // e.g. 'auto', 'en', 'pt'
-  template?: string; // e.g. 'meeting', 'training', 'summary'
+  
+  // Processing Options
+  language?: string;
+  template?: string;
+  minSpeakers?: number;
+  maxSpeakers?: number;
+
+  // Outputs
   audioPath?: string;
   transcriptPath?: string;
   summaryPath?: string;
@@ -21,18 +26,14 @@ interface Data {
   jobs: JobRecord[];
 }
 
-// Initialize LowDB with a default empty array
 const file = path.join(process.cwd(), 'db.json');
 const adapter = new JSONFile<Data>(file);
-const defaultData: Data = { jobs: [] };
+const db = new Low<Data>(adapter, { jobs: [] });
 
-export const db = new Low<Data>(adapter, defaultData);
-
-/**
- * Helper to initialize/read the DB ensures we don't read undefined data.
- */
-export async function getDb() {
+export const getDb = async () => {
   await db.read();
-  db.data ||= defaultData; 
+  db.data ||= { jobs: [] }; 
   return db;
-}
+};
+
+export type { Data };

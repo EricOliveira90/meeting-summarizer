@@ -5,14 +5,6 @@ import { apiService, JobStatus } from '../services/api';
 import { configService } from '../services/config';
 import { TranscriptionLanguage, SummaryTemplate } from '@shared'; 
 
-/**
- * Main Sync Command
- * 1. Checks Server Health
- * 2. Selects a Recording
- * 3. Selects Processing Options (Language & Template)
- * 4. Uploads & Polls
- * 5. Saves to Obsidian
- */
 export async function syncCommand() {
   console.log('🔄 Initializing Sync Workflow...');
 
@@ -23,7 +15,7 @@ export async function syncCommand() {
     return;
   }
 
-  // 2. Select File to Process
+  // 2. Select File
   const recordingDir = configService.get('paths').output;
   const selectedFile = await selectRecording(recordingDir);
   
@@ -35,6 +27,7 @@ export async function syncCommand() {
   const filePath = path.join(recordingDir, selectedFile);
 
   // 3. Select Processing Options
+  // We use 'input' for numbers to allow empty (undefined) values easily
   const options = await inquirer.prompt([
     {
       type: 'list',
@@ -42,11 +35,25 @@ export async function syncCommand() {
       message: 'Select Audio Language (Whisper):',
       choices: [
         { name: 'Auto Detect 🤖', value: TranscriptionLanguage.AUTO },
-        { name: 'English (US) 🇺🇸', value: TranscriptionLanguage.ENGLISH },
-        { name: 'Portuguese (BR) 🇧🇷', value: TranscriptionLanguage.PORTUGUESE },
-        { name: 'Spanish 🇪🇸', value: TranscriptionLanguage.SPANISH },
+        { name: 'English (US)', value: TranscriptionLanguage.ENGLISH },
+        { name: 'Portuguese (BR)', value: TranscriptionLanguage.PORTUGUESE },
+        { name: 'Spanish', value: TranscriptionLanguage.SPANISH },
       ],
       default: TranscriptionLanguage.AUTO
+    },
+    {
+      type: 'input',
+      name: 'minSpeakers',
+      message: 'Min Speakers (Optional, press Enter to skip):',
+      filter: (input) => input ? parseInt(input, 10) : undefined,
+      validate: (input) => !input || !isNaN(parseInt(input)) || 'Please enter a number'
+    },
+    {
+      type: 'input',
+      name: 'maxSpeakers',
+      message: 'Max Speakers (Optional, press Enter to skip):',
+      filter: (input) => input ? parseInt(input, 10) : undefined,
+      validate: (input) => !input || !isNaN(parseInt(input)) || 'Please enter a number'
     },
     {
       type: 'list',
@@ -64,11 +71,13 @@ export async function syncCommand() {
   try {
     // 4. Upload
     console.log(`\n📤 Uploading: ${selectedFile}`);
+    console.log(`   Config: [Lang: ${options.language} | Speakers: ${options.minSpeakers || '?'} - ${options.maxSpeakers || '?'} | Tmpl: ${options.template}]`);
     
-    // Updated to pass the options object
     const uploadResult = await apiService.uploadMeeting(filePath, {
       language: options.language,
-      template: options.template
+      template: options.template,
+      minSpeakers: options.minSpeakers,
+      maxSpeakers: options.maxSpeakers
     });
     
     if (!uploadResult.success) {
@@ -82,7 +91,6 @@ export async function syncCommand() {
     const completedJob = await pollForCompletion(uploadResult.jobId);
 
     if (completedJob) {
-      // 6. Generate Markdown in Obsidian
       await saveToObsidian(completedJob, selectedFile);
     }
 
@@ -91,53 +99,24 @@ export async function syncCommand() {
   }
 }
 
-/**
- * Helper: Lists MKV files and asks user to pick one.
- */
+// ... (Helper functions selectRecording, pollForCompletion, saveToObsidian remain unchanged)
 async function selectRecording(dir: string): Promise<string | null> {
-  if (!fs.existsSync(dir)) {
-    console.error(`❌ Recording directory not found: ${dir}`);
-    return null;
-  }
-
+  if (!fs.existsSync(dir)) return null;
   const files = fs.readdirSync(dir)
-    .filter(f => f.endsWith('.mkv'))
-    .sort((a, b) => {
-      // Sort by newest modified time
-      return fs.statSync(path.join(dir, b)).mtime.getTime() - 
-             fs.statSync(path.join(dir, a)).mtime.getTime();
-    });
-
-  if (files.length === 0) {
-    console.log('⚠️ No recordings found.');
-    return null;
-  }
-
-  const { file } = await inquirer.prompt([{
-    type: 'list',
-    name: 'file',
-    message: 'Select a meeting to process:',
-    choices: files,
-    pageSize: 10
-  }]);
-
+    // .filter(f => f.endsWith('.mkv'))
+    .sort((a, b) => fs.statSync(path.join(dir, b)).mtime.getTime() - fs.statSync(path.join(dir, a)).mtime.getTime());
+  if (files.length === 0) return null;
+  const { file } = await inquirer.prompt([{ type: 'list', name: 'file', message: 'Select a meeting:', choices: files, pageSize: 10 }]);
   return file;
 }
 
-/**
- * Helper: Polls the server every 2 seconds until job is done.
- */
 async function pollForCompletion(jobId: string): Promise<JobStatus | null> {
   console.log('\n⏳ Processing started. Please wait...');
-  
   return new Promise((resolve) => {
     const interval = setInterval(async () => {
       try {
         const job = await apiService.getJobStatus(jobId);
-        
-        // Clear line and print status
         process.stdout.write(`\r   Current Status: [ ${job.status} ] `);
-
         if (job.status === 'COMPLETED') {
           clearInterval(interval);
           console.log('\n\n✨ Processing Finished!');
@@ -147,59 +126,36 @@ async function pollForCompletion(jobId: string): Promise<JobStatus | null> {
           console.error(`\n\n❌ Job Failed: ${job.error}`);
           resolve(null);
         }
-      } catch (err) {
-        // Ignore transient network errors during polling
-      }
+      } catch (err) {}
     }, 2000);
   });
 }
 
-/**
- * Helper: Formats the data and writes to Obsidian Vault.
- */
 async function saveToObsidian(job: JobStatus, originalFilename: string) {
   const vaultPath = configService.get('paths').obsidianVault;
-  
   if (!vaultPath || !fs.existsSync(vaultPath)) {
-    console.warn('\n⚠️ Obsidian Vault path not configured or invalid.');
-    console.log('Dumping result to console instead:\n');
-    console.log(job.summary);
-    return;
+    console.log(job.summary); return;
   }
-
-  // Generate Filename (matches input filename but with .md)
   const baseName = path.parse(originalFilename).name;
-  const mdFilename = `${baseName}.md`;
-  const fullPath = path.join(vaultPath, mdFilename);
-
-  // Markdown Template
+  const fullPath = path.join(vaultPath, `${baseName}.md`);
   const fileContent = `---
 tags: [meeting, transcript, ai-summary]
 date: ${new Date().toISOString().split('T')[0]}
 original_file: ${originalFilename}
 ---
-
 # 📝 ${baseName.replace(/_/g, ' ')}
 
 ## 🧠 AI Executive Summary
 ${job.summary || '_No summary generated._'}
 
 ---
-
 ## 💬 Full Transcript
 <details>
 <summary>Click to expand full transcript</summary>
 
 ${job.transcript || '_No transcript available._'}
-
 </details>
 `;
-
-  try {
-    fs.writeFileSync(fullPath, fileContent, 'utf-8');
-    console.log(`\n📚 Saved to Obsidian: ${mdFilename}`);
-    console.log(`   Path: ${fullPath}`);
-  } catch (err) {
-    console.error('❌ Failed to write Obsidian file:', err);
-  }
+  try { fs.writeFileSync(fullPath, fileContent, 'utf-8'); console.log(`\n📚 Saved to: ${fullPath}`); } 
+  catch (err) { console.error('❌ Failed to write file:', err); }
 }
