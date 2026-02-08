@@ -49,7 +49,11 @@ packages/client/config.json
 *.wav
 *.mp3
 packages/server/uploads/*
+packages/server/venv-whisperx/*
+packages/server/summaries/*
+packages/server/transcriptions/*
 packages/client/recordings/*
+packages/client/test_vault/*
 
 # Server: Local Database & Temp files
 packages/server/db.json
