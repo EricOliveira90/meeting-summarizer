@@ -1,10 +1,7 @@
 import { program } from 'commander';
 import inquirer from 'inquirer';
-import { recordCommand } from './commands/record';
-import { runSetup } from './setup';
-import { runAudioSetup } from './setup-audio';
-import { configService } from './services/config';
-import { syncCommand } from './commands/sync';
+import { recordCommand, syncCommand } from './commands';
+import { runSetup, runAudioSetup, configService } from './services';
 
 // Updated Type definitions
 type MenuAction = 'record' | 'sync' | 'settings' | 'audio-setup' | 'exit';
