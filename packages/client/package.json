@@ -5,9 +5,10 @@
     "meeting-cli": "./dist/index.js"
   },
   "scripts": {
-    "build": "rimraf dist && tsc --build",
+    "build": "rimraf dist && tsc -p tsconfig.build.json",
     "start": "node dist/index.js",
-    "dev": "ts-node -r tsconfig-paths/register src/index.ts"
+    "dev": "ts-node -r tsconfig-paths/register src/index.ts",
+    "test": "vitest run"
   },
   "dependencies": {
     "@meeting-summarizer/shared": "1.0.0",

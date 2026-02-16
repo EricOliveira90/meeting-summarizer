@@ -10,12 +10,16 @@
     "clean": "tsc --build --clean",
     "nuke": "rimraf packages/*/dist packages/*/node_modules node_modules",
     "start:server": "npm run start --workspace=packages/server",
-    "start:client": "npm run start --workspace=packages/client"
+    "start:client": "npm run start --workspace=packages/client",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
-    "typescript": "^5.3.3",
     "@types/node": "^20.11.0",
+    "@vitest/spy": "^4.0.18",
     "rimraf": "^5.0.5",
-    "ts-node": "^10.9.2"
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3",
+    "vitest": "^4.0.18"
   }
 }
