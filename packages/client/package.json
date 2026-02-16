@@ -5,7 +5,7 @@
     "meeting-cli": "./dist/index.js"
   },
   "scripts": {
-    "build": "rimraf dist && tsc",
+    "build": "rimraf dist && tsc --build",
     "start": "ts-node -r tsconfig-paths/register src/index.ts"
   },
   "dependencies": {

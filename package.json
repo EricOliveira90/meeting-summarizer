@@ -6,7 +6,9 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build --workspaces",
+    "build": "tsc --build",
+    "clean": "tsc --build --clean",
+    "nuke": "rimraf packages/*/dist packages/*/node_modules node_modules",
     "start:server": "npm run start --workspace=packages/server",
     "start:client": "npm run start --workspace=packages/client"
   },
