@@ -9,6 +9,7 @@ import { meetingQueue, getDb, JobRecord } from './services';
 
 const PORT = parseInt(process.env.PORT || '3000');
 const HOST = '127.0.0.1'; 
+const API_KEY = process.env.API_KEY;
 
 const server = Fastify({
   logger: false, 
@@ -17,6 +18,20 @@ const server = Fastify({
 
 server.register(cors, { origin: '*' }); 
 server.register(multipart);
+
+// --- AUTHENTICATION MIDDLEWARE ---
+server.addHook('onRequest', async (request, reply) => {
+  // If API_KEY is set in .env, enforce it on all requests
+  if (API_KEY) {
+    const clientKey = request.headers['x-api-key'];
+    
+    if (!clientKey || clientKey !== API_KEY) {
+      console.warn(`🔒 Unauthorized access attempt from ${request.ip}`);
+      return reply.code(401).send({ error: 'Unauthorized: Invalid or missing API Key' });
+    }
+  }
+});
+// ---------------------------------
 
 const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
 if (!fs.existsSync(UPLOAD_DIR)) {
@@ -58,6 +73,7 @@ server.post('/upload', async (req, reply) => {
       fields.id = fileId;
     } else {
       // It's a field (language, minSpeakers, etc.)
+      // Note: In multipart, fields should strictly define the value as simple types or JSON strings
       fields[part.fieldname] = part.value;
     }
   }
@@ -137,6 +153,11 @@ const start = async () => {
   try {
     await server.listen({ port: PORT, host: HOST });
     console.log(`\n🚀 Server listening at http://${HOST}:${PORT}`);
+    if (API_KEY) {
+      console.log(`🔒 Security: API Key Authentication Enabled`);
+    } else {
+      console.warn(`⚠️  Security Warning: No API_KEY set in environment variables.`);
+    }
   } catch (err) {
     server.log.error(err);
     process.exit(1);
