@@ -70,7 +70,7 @@ enum TranscriptionLanguage {
   SPANISH = 'es'
 }
 
-enum SummaryTemplate {
+enum AIPromptTemplate {
   MEETING = 'meeting',   // Action Items & Decisions
   TRAINING = 'training', // Key Concepts & Q&A
   SUMMARY = 'summary'    // Brief TL;DR

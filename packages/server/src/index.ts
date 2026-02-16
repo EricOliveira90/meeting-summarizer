@@ -5,7 +5,15 @@ import multipart from '@fastify/multipart';
 import path from 'path';
 import fs from 'fs';
 import { randomUUID } from 'crypto';
-import { meetingQueue, getDb, JobRecord } from './services';
+import { 
+  JobRecord, 
+  Job,
+  TranscriptionLanguage, 
+  AIPromptTemplate,
+  UploadResponse,
+  ErrorResponse
+} from '@meeting-summarizer/shared';
+import { meetingQueue, getDb } from './services';
 
 const PORT = parseInt(process.env.PORT || '3000');
 const HOST = '127.0.0.1'; 
@@ -19,41 +27,39 @@ const server = Fastify({
 server.register(cors, { origin: '*' }); 
 server.register(multipart);
 
-// --- AUTHENTICATION MIDDLEWARE ---
+// --- AUTHENTICATION ---
 server.addHook('onRequest', async (request, reply) => {
-  // If API_KEY is set in .env, enforce it on all requests
   if (API_KEY) {
     const clientKey = request.headers['x-api-key'];
-    
     if (!clientKey || clientKey !== API_KEY) {
       console.warn(`🔒 Unauthorized access attempt from ${request.ip}`);
       return reply.code(401).send({ error: 'Unauthorized: Invalid or missing API Key' });
     }
   }
 });
-// ---------------------------------
 
 const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
-if (!fs.existsSync(UPLOAD_DIR)) {
-  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-}
+if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
-server.get('/', async () => {
-  return { status: 'online', service: 'Meeting Transcriber Server' };
-});
+server.get('/', async () => ({ status: 'online', service: 'Meeting Summarizer Server' }));
+
+/**
+ * Helper to safely validate Enums from string input
+ */
+function parseEnum<T>(value: any, enumObj: T, fallback: any): any {
+  return Object.values(enumObj as any).includes(value) ? value : fallback;
+}
 
 /**
  * ROUTE: POST /upload
- * Handles Multipart Upload: File + Metadata Fields
  */
-server.post('/upload', async (req, reply) => {
+server.post<{ Reply: UploadResponse | ErrorResponse }>('/upload', async (req, reply) => {
   const parts = req.parts();
   
   let uploadFilename = '';
   let savePath = '';
-  const fields: Record<string, any> = {};
+  const fields: Partial<Record<keyof JobRecord, any>> = {};
 
-  // Iterate over all parts (fields and files)
   for await (const part of parts) {
     if (part.type === 'file') {
       const fileId = randomUUID();
@@ -61,7 +67,6 @@ server.post('/upload', async (req, reply) => {
       const safeFilename = `${fileId}_${part.filename.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
       savePath = path.join(UPLOAD_DIR, safeFilename);
 
-      // Stream to disk
       await new Promise<void>((resolve, reject) => {
         const pump = fs.createWriteStream(savePath);
         part.file.pipe(pump);
@@ -69,12 +74,9 @@ server.post('/upload', async (req, reply) => {
         pump.on('error', reject);
       });
       
-      // Store the ID for DB creation later
       fields.id = fileId;
     } else {
-      // It's a field (language, minSpeakers, etc.)
-      // Note: In multipart, fields should strictly define the value as simple types or JSON strings
-      fields[part.fieldname] = part.value;
+      fields[part.fieldname as keyof JobRecord] = part.value;
     }
   }
 
@@ -82,18 +84,17 @@ server.post('/upload', async (req, reply) => {
     return reply.status(400).send({ error: 'No file uploaded' });
   }
 
-  // Parse Numbers safely
-  const minSpeakers = fields.minSpeakers ? parseInt(fields.minSpeakers as string) : undefined;
-  const maxSpeakers = fields.maxSpeakers ? parseInt(fields.maxSpeakers as string) : undefined;
+  const minSpeakers = fields.minSpeakers ? parseInt(fields.minSpeakers) : undefined;
+  const maxSpeakers = fields.maxSpeakers ? parseInt(fields.maxSpeakers) : undefined;
 
   const newJob: JobRecord = {
-    id: fields.id, // Generated during file processing
+    id: fields.id,
     originalFilename: uploadFilename,
     filePath: savePath,
     uploadDate: new Date().toISOString(),
     status: 'PENDING',
-    language: fields.language as string || 'auto',
-    template: fields.template as string || 'meeting',
+    language: parseEnum(fields.language, TranscriptionLanguage, TranscriptionLanguage.AUTO),
+    template: parseEnum(fields.template, AIPromptTemplate, AIPromptTemplate.MEETING),
     minSpeakers: isNaN(minSpeakers!) ? undefined : minSpeakers,
     maxSpeakers: isNaN(maxSpeakers!) ? undefined : maxSpeakers
   };
@@ -104,64 +105,55 @@ server.post('/upload', async (req, reply) => {
 
   meetingQueue.push({ jobId: newJob.id, filePath: savePath });
 
-  console.log(`📥 Upload: ${uploadFilename} | Speakers: ${newJob.minSpeakers || '?'}-${newJob.maxSpeakers || '?'}`);
+  console.log(`📥 Upload: ${uploadFilename} | [${newJob.language}, ${newJob.template}]`);
 
   return { success: true, jobId: newJob.id, message: 'File queued.' };
 });
 
-server.get('/jobs', async () => {
-  const db = await getDb();
-  return db.data.jobs.sort((a, b) => 
-    new Date(b.uploadDate).getTime() - new Date(a.uploadDate).getTime()
-  );
-});
-
 /**
  * ROUTE: GET /jobs/:id
- * HYDRATION: Reads transcript AND summary from disk on request.
+ * Returns: Job (Hydrated with text content)
  */
-server.get<{ Params: { id: string } }>('/jobs/:id', async (req, reply) => {
+server.get<{ Params: { id: string }, Reply: Job | ErrorResponse }>('/jobs/:id', async (req, reply) => {
   const db = await getDb();
   const job = db.data.jobs.find(j => j.id === req.params.id);
 
   if (!job) return reply.status(404).send({ error: 'Job not found' });
 
-  const responsePayload = { ...job } as any;
+  // Transform JobRecord -> Job
+  // 1. Remove internal paths
+  const { filePath, audioPath, transcriptPath, summaryPath, ...safeJob } = job;
+  
+  const responsePayload: Job = { ...safeJob };
 
-  // 1. Load Transcript
-  if (job.transcriptPath && fs.existsSync(job.transcriptPath)) {
+  // 2. Hydrate Text Content
+  if (transcriptPath && fs.existsSync(transcriptPath)) {
     try {
-      responsePayload.transcript = await fs.promises.readFile(job.transcriptPath, 'utf-8');
+      responsePayload.transcriptText = await fs.promises.readFile(transcriptPath, 'utf-8');
     } catch (err) {
-      responsePayload.transcriptError = "File not found.";
+      responsePayload.transcriptError = "File unreadable.";
     }
   }
 
-  // 2. Load Summary
-  if (job.summaryPath && fs.existsSync(job.summaryPath)) {
+  if (summaryPath && fs.existsSync(summaryPath)) {
     try {
-      responsePayload.summary = await fs.promises.readFile(job.summaryPath, 'utf-8');
+      responsePayload.summaryText = await fs.promises.readFile(summaryPath, 'utf-8');
     } catch (err) {
-      responsePayload.summaryError = "File not found.";
+      responsePayload.summaryError = "File unreadable.";
     }
   }
 
   return responsePayload;
 });
 
+// ... (Start function remains same)
 const start = async () => {
   try {
     await server.listen({ port: PORT, host: HOST });
     console.log(`\n🚀 Server listening at http://${HOST}:${PORT}`);
-    if (API_KEY) {
-      console.log(`🔒 Security: API Key Authentication Enabled`);
-    } else {
-      console.warn(`⚠️  Security Warning: No API_KEY set in environment variables.`);
-    }
   } catch (err) {
     server.log.error(err);
     process.exit(1);
   }
 };
-
 start();

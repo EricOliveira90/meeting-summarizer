@@ -1,24 +1,13 @@
-import axios, { AxiosInstance } from 'axios';
+import axios, { AxiosInstance, AxiosError } from 'axios';
 import fs from 'fs';
 import FormData from 'form-data';
 import { configService } from './config';
-import { UploadOptions } from '@meeting-summarizer/shared'; 
-
-export interface JobStatus {
-  id: string;
-  status: 'PENDING' | 'EXTRACTING' | 'TRANSCRIBING' | 'SUMMARIZING' | 'COMPLETED' | 'FAILED';
-  originalFilename: string;
-  uploadDate: string;
-  transcript?: string;
-  summary?: string;
-  error?: string;
-}
-
-export interface UploadResponse {
-  success: boolean;
-  jobId: string;
-  message: string;
-}
+import { 
+  UploadOptions,
+  Job,
+  UploadResponse,
+  ErrorResponse
+} from '@meeting-summarizer/shared'; 
 
 class ApiService {
   private get client(): AxiosInstance {
@@ -45,9 +34,6 @@ class ApiService {
     }
   }
 
-  /**
-   * Uploads the MKV file along with processing options.
-   */
   public async uploadMeeting(filePath: string, options: UploadOptions): Promise<UploadResponse> {
     if (!fs.existsSync(filePath)) {
       throw new Error(`File not found: ${filePath}`);
@@ -55,59 +41,65 @@ class ApiService {
 
     const { apiKey } = configService.get('server');
     const form = new FormData();
-    form.append('file', fs.createReadStream(filePath));
     
-    // Append the new metadata fields
+    form.append('file', fs.createReadStream(filePath));
     form.append('language', options.language);
     form.append('template', options.template);
+    if (options.minSpeakers) form.append('minSpeakers', options.minSpeakers.toString());
+    if (options.maxSpeakers) form.append('maxSpeakers', options.maxSpeakers.toString());
 
     try {
       console.log(`🚀 Uploading to server [Lang: ${options.language} | Tmpl: ${options.template}]...`);
       
+      // Strict typing on the return: <UploadResponse>
       const response = await this.client.post<UploadResponse>('/upload', form, {
         headers: {
           ...form.getHeaders(),
           'x-api-key': apiKey
         },
-        timeout: 0, 
+        timeout: 0,
       });
 
       return response.data;
-    } catch (error: any) {
+    } catch (error) {
       this.handleError(error);
       throw error;
     }
   }
 
-  public async getJobStatus(jobId: string): Promise<JobStatus> {
+  public async getJobStatus(jobId: string): Promise<Job> {
     try {
-      const response = await this.client.get<JobStatus>(`/jobs/${jobId}`);
+      const response = await this.client.get<Job>(`/jobs/${jobId}`);
       return response.data;
-    } catch (error: any) {
+    } catch (error) {
       this.handleError(error);
       throw error;
     }
   }
 
-  public async getJobs(): Promise<JobStatus[]> {
+  public async getJobs(): Promise<Job[]> {
     try {
-      const response = await this.client.get<JobStatus[]>('/jobs');
+      const response = await this.client.get<Job[]>('/jobs');
       return response.data;
-    } catch (error: any) {
+    } catch (error) {
       console.warn('⚠️ Could not fetch job history (Server might be offline)');
       return [];
     }
   }
 
-  private handleError(error: any) {
+  private handleError(error: unknown) {
     if (axios.isAxiosError(error)) {
-      const msg = error.response?.data?.error || error.message;
+      const axiosError = error as AxiosError<ErrorResponse>;
+      const msg = axiosError.response?.data?.error || axiosError.message;
       console.error(`❌ API Error: ${msg}`);
-      if (error.response?.status === 401) {
+      
+      if (axiosError.response?.status === 401) {
         console.error('🔒 Authentication Failed: Please check your API Key in settings.');
       }
+    } else if (error instanceof Error) {
+       console.error(`❌ Client Error: ${error.message}`);
     } else {
-      console.error('❌ Unknown API Error:', error);
+      console.error('❌ Unknown API Error');
     }
   }
 }

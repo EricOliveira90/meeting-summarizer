@@ -1,10 +1,10 @@
 import Queue from 'better-queue';
 import path from 'path';
 import fs from 'fs';
+import { JobRecord } from '@meeting-summarizer/shared'
 import {
   audioExtractionService,
   getDb,
-  JobRecord,
   transcriptionService,
   summaryService
 } from '.';

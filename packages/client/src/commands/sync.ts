@@ -1,8 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import inquirer from 'inquirer';
-import { apiService, JobStatus, configService } from '../services';
-import { TranscriptionLanguage, SummaryTemplate } from '@meeting-summarizer/shared'; 
+import { apiService, configService } from '../services';
+import { AIPromptTemplate, Job, TranscriptionLanguage } from '@meeting-summarizer/shared';
 
 export async function syncCommand() {
   console.log('🔄 Initializing Sync Workflow...');
@@ -59,11 +59,11 @@ export async function syncCommand() {
       name: 'template',
       message: 'Select Summary Style (Gemini):',
       choices: [
-        { name: 'Meeting Minutes 📝 (Action Items, Decisions)', value: SummaryTemplate.MEETING },
-        { name: 'Training/Lecture 🎓 (Key Concepts, Q&A)', value: SummaryTemplate.TRAINING },
-        { name: 'Brief Summary 📄 (TL;DR)', value: SummaryTemplate.SUMMARY },
+        { name: 'Meeting Minutes 📝 (Action Items, Decisions)', value: AIPromptTemplate.MEETING },
+        { name: 'Training/Lecture 🎓 (Key Concepts, Q&A)', value: AIPromptTemplate.TRAINING },
+        { name: 'Brief Summary 📄 (TL;DR)', value: AIPromptTemplate.SUMMARY },
       ],
-      default: SummaryTemplate.MEETING
+      default: AIPromptTemplate.MEETING
     }
   ]);
 
@@ -109,13 +109,14 @@ async function selectRecording(dir: string): Promise<string | null> {
   return file;
 }
 
-async function pollForCompletion(jobId: string): Promise<JobStatus | null> {
+async function pollForCompletion(jobId: string): Promise<Job | null> {
   console.log('\n⏳ Processing started. Please wait...');
   return new Promise((resolve) => {
     const interval = setInterval(async () => {
       try {
         const job = await apiService.getJobStatus(jobId);
         process.stdout.write(`\r   Current Status: [ ${job.status} ] `);
+        
         if (job.status === 'COMPLETED') {
           clearInterval(interval);
           console.log('\n\n✨ Processing Finished!');
@@ -130,10 +131,13 @@ async function pollForCompletion(jobId: string): Promise<JobStatus | null> {
   });
 }
 
-async function saveToObsidian(job: JobStatus, originalFilename: string) {
+async function saveToObsidian(job: Job, originalFilename: string) {
   const vaultPath = configService.get('paths').obsidianVault;
   if (!vaultPath || !fs.existsSync(vaultPath)) {
-    console.log(job.summary); return;
+    // If no vault, just dump to console
+    console.log('\n--- SUMMARY ---\n');
+    console.log(job.summaryText); 
+    return;
   }
   const baseName = path.parse(originalFilename).name;
   const fullPath = path.join(vaultPath, `${baseName}.md`);
@@ -142,17 +146,17 @@ tags: [meeting, transcript, ai-summary]
 date: ${new Date().toISOString().split('T')[0]}
 original_file: ${originalFilename}
 ---
-# 📝 ${baseName.replace(/_/g, ' ')}
+# 📝 ${path.parse(originalFilename).name.replace(/_/g, ' ')}
 
 ## 🧠 AI Executive Summary
-${job.summary || '_No summary generated._'}
+${job.summaryText || '_No summary generated._'}
 
 ---
 ## 💬 Full Transcript
 <details>
 <summary>Click to expand full transcript</summary>
 
-${job.transcript || '_No transcript available._'}
+${job.transcriptText || '_No transcript available._'}
 </details>
 `;
   try { fs.writeFileSync(fullPath, fileContent, 'utf-8'); console.log(`\n📚 Saved to: ${fullPath}`); } 

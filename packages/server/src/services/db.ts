@@ -1,34 +1,15 @@
 import { Low } from 'lowdb';
 import { JSONFile } from 'lowdb/node';
 import path from 'path';
+import { JobRecord } from '@meeting-summarizer/shared'
 
-export interface JobRecord {
-  id: string;
-  originalFilename: string;
-  filePath: string;
-  uploadDate: string;
-  status: 'PENDING' | 'EXTRACTING' | 'TRANSCRIBING' | 'SUMMARIZING' | 'COMPLETED' | 'FAILED';
-  
-  // Processing Options
-  language?: string;
-  template?: string;
-  minSpeakers?: number;
-  maxSpeakers?: number;
-
-  // Outputs
-  audioPath?: string;
-  transcriptPath?: string;
-  summaryPath?: string;
-  error?: string;
-}
-
-interface Data {
+interface JobDb {
   jobs: JobRecord[];
 }
 
 const file = path.join(process.cwd(), 'db.json');
-const adapter = new JSONFile<Data>(file);
-const db = new Low<Data>(adapter, { jobs: [] });
+const adapter = new JSONFile<JobDb>(file);
+const db = new Low<JobDb>(adapter, { jobs: [] });
 
 export const getDb = async () => {
   await db.read();
@@ -36,4 +17,4 @@ export const getDb = async () => {
   return db;
 };
 
-export type { Data };
+export type { JobDb };
