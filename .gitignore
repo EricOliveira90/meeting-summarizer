@@ -59,6 +59,7 @@ packages/client/test_vault/*
 # Server: Local Database & Temp files
 packages/server/db.json
 packages/server/temp/*
+ecosystem.config.js
 
 # Server: Whisper Models (if downloaded locally)
 .cache/whisper
