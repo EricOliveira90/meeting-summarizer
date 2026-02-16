@@ -1,8 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import inquirer from 'inquirer';
-import { apiService, JobStatus } from '../services/api';
-import { configService } from '../services/config';
+import { apiService, JobStatus, configService } from '../services';
 import { TranscriptionLanguage, SummaryTemplate } from '@meeting-summarizer/shared'; 
 
 export async function syncCommand() {

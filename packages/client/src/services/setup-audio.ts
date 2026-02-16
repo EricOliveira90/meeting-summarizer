@@ -1,6 +1,5 @@
 import inquirer from 'inquirer';
-import { obsService } from './obs';
-import { configService } from './config';
+import { obsService, configService } from '.';
 
 export async function runAudioSetup() {
   console.log('Connecting to OBS to fetch audio devices...');

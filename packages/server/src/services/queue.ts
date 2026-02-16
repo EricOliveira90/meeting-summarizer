@@ -1,10 +1,13 @@
 import Queue from 'better-queue';
 import path from 'path';
 import fs from 'fs';
-import { audioExtractionService } from './audio-extractor';
-import { getDb, JobRecord } from './db';
-import { transcriptionService } from './transcriber';
-import { summaryService } from './summarizer';
+import {
+  audioExtractionService,
+  getDb,
+  JobRecord,
+  transcriptionService,
+  summaryService
+} from '.';
 
 interface QueueInput {
   jobId: string;

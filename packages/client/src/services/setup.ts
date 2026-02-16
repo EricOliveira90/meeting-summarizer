@@ -1,5 +1,5 @@
 import inquirer from 'inquirer';
-import { configService } from './services/config';
+import { configService } from './config';
 
 export async function runSetup() {
   console.log('Welcome to Meeting Summarizer Setup');

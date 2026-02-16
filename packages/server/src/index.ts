@@ -5,8 +5,7 @@ import multipart from '@fastify/multipart';
 import path from 'path';
 import fs from 'fs';
 import { randomUUID } from 'crypto';
-import { meetingQueue } from './services/queue';
-import { getDb, JobRecord } from './services/db';
+import { meetingQueue, getDb, JobRecord } from './services';
 
 const PORT = parseInt(process.env.PORT || '3000');
 const HOST = '127.0.0.1'; 

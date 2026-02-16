@@ -1,11 +1,11 @@
 import path from 'path';
-import { audioExtractionService } from 'services/audio-extractor';
+import { audioExtractionService } from './services';
 
 async function runExtraction() {
   try {
     // 1. Define paths relative to this script
     // Replace 'video.mkv' with your actual file name
-    const inputFileName = '2026-02-06_1on1_Nic.mkv'; 
+    const inputFileName = '2026-02-10_Ismafer_Initial_Meeting.mkv'; 
     const inputPath = path.join(__dirname, inputFileName);
     
     // We will save the wav in the same folder, or you can create a subfolder like 'output'

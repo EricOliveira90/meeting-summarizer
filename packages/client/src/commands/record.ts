@@ -1,10 +1,5 @@
-import { obsService } from '../services/obs';
-import { configService } from '../services/config';
-import { 
-  GlobalKeyboardListener, 
-  IGlobalKeyEvent, 
-  IGlobalKeyDownMap
-} from 'node-global-key-listener';
+import { obsService, configService } from '../services';
+import { GlobalKeyboardListener, IGlobalKeyEvent, IGlobalKeyDownMap } from 'node-global-key-listener';
 import inquirer from 'inquirer';
 import fs from 'fs';
 import path from 'path';
