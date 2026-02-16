@@ -22,12 +22,15 @@ export interface UploadResponse {
 
 class ApiService {
   private get client(): AxiosInstance {
-    const { ip, port } = configService.get('server');
+    const { ip, port, apiKey } = configService.get('server');
     const baseURL = `http://${ip}:${port}`;
     
     return axios.create({
       baseURL,
       timeout: 10000,
+      headers: {
+        'x-api-key': apiKey
+      },
       maxContentLength: Infinity,
       maxBodyLength: Infinity
     });
@@ -50,6 +53,7 @@ class ApiService {
       throw new Error(`File not found: ${filePath}`);
     }
 
+    const { apiKey } = configService.get('server');
     const form = new FormData();
     form.append('file', fs.createReadStream(filePath));
     
@@ -63,6 +67,7 @@ class ApiService {
       const response = await this.client.post<UploadResponse>('/upload', form, {
         headers: {
           ...form.getHeaders(),
+          'x-api-key': apiKey
         },
         timeout: 0, 
       });
@@ -98,6 +103,9 @@ class ApiService {
     if (axios.isAxiosError(error)) {
       const msg = error.response?.data?.error || error.message;
       console.error(`❌ API Error: ${msg}`);
+      if (error.response?.status === 401) {
+        console.error('🔒 Authentication Failed: Please check your API Key in settings.');
+      }
     } else {
       console.error('❌ Unknown API Error:', error);
     }

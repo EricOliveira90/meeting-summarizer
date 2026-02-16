@@ -8,9 +8,10 @@ interface ObsConfig {
   password?: string;
 }
 
-interface ServerConfig { // <--- New Section for the Fastify Server
+interface ServerConfig {
   ip: string;
   port: number;
+  apiKey: string;
 }
 
 interface PathConfig {
@@ -26,7 +27,7 @@ interface AudioConfig {
 // 2. Main Config Interface
 export interface AppConfig {
   obs: ObsConfig;
-  server: ServerConfig; // <--- Add to Main Interface
+  server: ServerConfig;
   paths: PathConfig;
   audio: AudioConfig;
 }
@@ -38,13 +39,13 @@ const defaults: AppConfig = {
     port: 4455,
     password: '',
   },
-  server: { // <--- Default values for Server
+  server: {
     ip: '127.0.0.1', 
-    port: 3000 
+    port: 3000,
+    apiKey: ''
   },
   paths: {
     output: path.join(process.cwd(), 'recordings'),
-    // obsidianVault is optional, so undefined by default
   },
   audio: {}
 };
@@ -59,11 +60,6 @@ class ConfigService {
     });
   }
 
-  /**
-   * GENERIC GETTER:
-   * This signature tells TypeScript: 
-   * "If I ask for 'server', I am GUARANTEED to get back 'ServerConfig'"
-   */
   public get<K extends keyof AppConfig>(key: K): AppConfig[K] {
     return this.store.get(key);
   }
@@ -73,8 +69,11 @@ class ConfigService {
   }
 
   public hasConfigured(): boolean {
-    // Simple check to see if we have valid paths
-    return !!this.store.get('paths').output;
+    const paths = this.store.get('paths');
+    const server = this.store.get('server');
+    
+    // Check if output path is set AND api key is present
+    return !!(paths.output && server.apiKey);
   }
 }
 

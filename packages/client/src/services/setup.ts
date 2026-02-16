@@ -23,6 +23,12 @@ export async function runSetup() {
       message: 'Server Port:',
       default: currentServer.port,
     },
+    {
+      type: 'input',
+      name: 'apikey',
+      message: 'Server API Key:',
+      default: currentServer.apiKey,
+    },
 
     // --- OBS CONFIG ---
     {
@@ -64,7 +70,8 @@ export async function runSetup() {
   // 1. Save Server Config
   configService.set('server', {
     ip: answers.serverIp,
-    port: answers.serverPort
+    port: answers.serverPort,
+    apiKey: answers.apiKey
   });
 
   // 2. Save OBS Config
