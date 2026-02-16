@@ -6,7 +6,8 @@
   },
   "scripts": {
     "build": "rimraf dist && tsc --build",
-    "start": "ts-node -r tsconfig-paths/register src/index.ts"
+    "start": "node dist/index.js",
+    "dev": "ts-node -r tsconfig-paths/register src/index.ts"
   },
   "dependencies": {
     "@meeting-summarizer/shared": "1.0.0",

@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": "./src",
+    "paths": {
+      "@meeting-summarizer/shared": ["../../shared/src/index.ts"]
+    }
+  }
+}
