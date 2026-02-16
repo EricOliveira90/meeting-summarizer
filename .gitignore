@@ -2,6 +2,7 @@
 node_modules
 .pnp
 .pnp.js
+packages/server/venv-whisperx
 
 # Testing
 coverage

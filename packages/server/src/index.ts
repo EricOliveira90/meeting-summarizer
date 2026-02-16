@@ -9,7 +9,7 @@ import { meetingQueue } from './services/queue';
 import { getDb, JobRecord } from './services/db';
 
 const PORT = parseInt(process.env.PORT || '3000');
-const HOST = '0.0.0.0'; 
+const HOST = '127.0.0.1'; 
 
 const server = Fastify({
   logger: false, 
