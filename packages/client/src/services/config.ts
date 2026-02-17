@@ -1,7 +1,11 @@
 import Conf from 'conf';
+import dotenv from 'dotenv';
 import path from 'path';
 
-// 1. Define the specific shapes of your config sections
+// Load .env from the package root
+dotenv.config({ path: path.join(__dirname, '../../.env') });
+
+// 1. Define the specific shapes of the config sections
 interface ObsConfig {
   ip: string;
   port: number;
@@ -35,14 +39,14 @@ export interface AppConfig {
 // 3. Defaults
 const defaults: AppConfig = {
   obs: {
-    ip: '127.0.0.1',
-    port: 4455,
-    password: '',
+    ip: process.env.OBS_IP || '127.0.0.1',
+    port: Number(process.env.OBS_PORT) || 4455,
+    password: process.env.OBS_PASSWORD || ''
   },
   server: {
-    ip: '127.0.0.1', 
-    port: 3000,
-    apiKey: ''
+    ip: process.env.SERVER_IP || '127.0.0.1',
+    port: Number(process.env.SERVER_PORT) || 3000,
+    apiKey: process.env.API_KEY || ''
   },
   paths: {
     output: path.join(process.cwd(), 'recordings'),
