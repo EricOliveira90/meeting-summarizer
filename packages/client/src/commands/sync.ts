@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import inquirer from 'inquirer';
 import { apiService, configService } from '../services';
+import { jobState } from '../services/db';
 import { AIPromptTemplate, Job, TranscriptionLanguage } from '@meeting-summarizer/shared';
 
 export async function syncCommand() {
@@ -24,6 +25,13 @@ export async function syncCommand() {
   }
 
   const filePath = path.join(recordingDir, selectedFile);
+
+  let localJob = await jobState.getJobByPath(filePath);
+  if (!localJob) {
+    console.log('🆕 New file detected. Registering in local database...');
+    localJob = await jobState.addRecording(filePath);
+  }
+  const jobId = localJob.jobId;
 
   // 3. Select Processing Options
   // We use 'input' for numbers to allow empty (undefined) values easily
@@ -73,6 +81,7 @@ export async function syncCommand() {
     console.log(`   Config: [Lang: ${options.language} | Speakers: ${options.minSpeakers || '?'} - ${options.maxSpeakers || '?'} | Tmpl: ${options.template}]`);
     
     const uploadResult = await apiService.uploadMeeting(filePath, {
+      jobId: jobId,
       language: options.language,
       template: options.template,
       minSpeakers: options.minSpeakers,

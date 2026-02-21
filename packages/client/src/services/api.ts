@@ -43,10 +43,6 @@ class ApiService {
     const form = new FormData();
     
     form.append('file', fs.createReadStream(filePath));
-    form.append('language', options.language);
-    form.append('template', options.template);
-    if (options.minSpeakers) form.append('minSpeakers', options.minSpeakers.toString());
-    if (options.maxSpeakers) form.append('maxSpeakers', options.maxSpeakers.toString());
 
     try {
       console.log(`🚀 Uploading to server [Lang: ${options.language} | Tmpl: ${options.template}]...`);
@@ -55,8 +51,15 @@ class ApiService {
       const response = await this.client.post<UploadResponse>('/upload', form, {
         headers: {
           ...form.getHeaders(),
+          'x-job-id': options.jobId,
+          'x-language': options.language,
+          'x-template': options.template,
+          'x-min-speakers': options.minSpeakers?.toString() || '',
+          'x-max-speakers': options.maxSpeakers?.toString() || '',
           'x-api-key': apiKey
         },
+        maxContentLength: Infinity,
+        maxBodyLength: Infinity,
         timeout: 0,
       });
 

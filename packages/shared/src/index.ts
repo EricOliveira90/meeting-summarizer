@@ -20,6 +20,7 @@ export enum AIPromptTemplate {
 }
 
 export interface UploadOptions {
+  jobId: string;
   language: TranscriptionLanguage;
   template: AIPromptTemplate;
   minSpeakers?: number;

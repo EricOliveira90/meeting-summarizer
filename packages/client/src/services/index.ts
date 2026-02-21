@@ -1,5 +1,6 @@
 export * from './api'
 export * from './config'
+export * from './db'
 export * from './obs'
 export * from './setup-audio'
 export * from './setup'
