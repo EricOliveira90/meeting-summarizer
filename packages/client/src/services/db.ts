@@ -1,38 +1,41 @@
 import { Low } from 'lowdb';
 import { JSONFile } from 'lowdb/node';
 import path from 'path';
+import fs from 'fs';
 import { randomUUID } from 'crypto';
 
-// Enum matches the UX Status States
 export enum LocalJobStatus {
-  WAITING_UPLOAD = 'WAITING_UPLOAD', // Recorded locally, server doesn't know it yet
-  UPLOADING = 'UPLOADING',           // Currently syncing
-  PROCESSING = 'PROCESSING',         // Uploaded, server is working
-  READY = 'READY',                   // Server finished, results ready to fetch
-  COMPLETED = 'COMPLETED',           // Results fetched and saved to disk
-  FAILED = 'FAILED'                  // Error state
+  WAITING_UPLOAD = 'WAITING_UPLOAD',
+  UPLOADING = 'UPLOADING',
+  PROCESSING = 'PROCESSING',
+  READY = 'READY',
+  COMPLETED = 'COMPLETED',
+  FAILED = 'FAILED',                 // Intermittent error, will retry
+  ABANDONED = 'ABANDONED',           // Max retries hit or fatal error
+  DELETED = 'DELETED'                // User deleted the local file
 }
 
 export interface LocalJob {
-  jobId: string;              // The Global UUID (Client generates, Server respects)
-  filePath: string;        // Path to the .mkv/.wav file
+  jobId: string;
+  filePath: string;
   originalName: string;
-  createdAt: string;       // ISO Date
+  createdAt: string;
   status: LocalJobStatus;
-  error?: string;          // Last known error message
+  error?: string;
+  retryCount: number;
 }
 
 interface ClientSchema {
   jobs: LocalJob[];
 }
 
-class JobStateService {
+export class JobStateDB {
   private db: Low<ClientSchema>;
   private ready: Promise<void>;
 
-  constructor() {
-    const dbPath = path.join(process.cwd(), 'client-db.json');
-    const adapter = new JSONFile<ClientSchema>(dbPath);
+  constructor(dbPath?: string) {
+    const finalPath = dbPath || path.join(process.cwd(), 'client-db.json');
+    const adapter = new JSONFile<ClientSchema>(finalPath);
     this.db = new Low(adapter, { jobs: [] });
     this.ready = this.init();
   }
@@ -51,12 +54,46 @@ class JobStateService {
       filePath,
       originalName: path.basename(filePath),
       createdAt: new Date().toISOString(),
-      status: LocalJobStatus.WAITING_UPLOAD
+      status: LocalJobStatus.WAITING_UPLOAD,
+      retryCount: 0
     };
 
     this.db.data.jobs.push(job);
     await this.db.write();
     return job;
+  }
+
+  /**
+   * Scans the local database for jobs that still rely on the local file.
+   * If the user manually deleted the audio file from their OS,
+   * this marks the database record as DELETED to prevent phantom upload crashes.
+   */
+  public async cleanPhantomFiles(): Promise<number> {
+    await this.ready;
+    let cleanedCount = 0;
+
+    const vulnerableStates = [
+      LocalJobStatus.WAITING_UPLOAD,
+      LocalJobStatus.FAILED // FAILED means it failed to upload and we want to retry
+    ];
+
+    for (const job of this.db.data.jobs) {
+      if (vulnerableStates.includes(job.status)) {
+        // If the file is physically missing from the hard drive
+        if (!fs.existsSync(job.filePath)) {
+          job.status = LocalJobStatus.DELETED;
+          job.error = 'File was deleted from the local disk.';
+          cleanedCount++;
+        }
+      }
+    }
+
+    // Only write to the JSON file if we actually changed something
+    if (cleanedCount > 0) {
+      await this.db.write();
+    }
+
+    return cleanedCount;
   }
 
   public async getPendingUploads(): Promise<LocalJob[]> {
@@ -104,5 +141,3 @@ class JobStateService {
     return this.db.data.jobs.find(j => j.filePath === filePath);
     }
 }
-
-export const jobState = new JobStateService();
