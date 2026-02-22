@@ -1,7 +1,7 @@
 import { Low } from 'lowdb';
 import { JSONFile } from 'lowdb/node';
 import path from 'path';
-import fs from 'fs';
+import fsPromises from 'fs/promises';
 import { randomUUID } from 'crypto';
 
 export enum LocalJobStatus {
@@ -41,9 +41,14 @@ export class JobStateDB {
   }
 
   private async init() {
-    await this.db.read();
-    this.db.data ||= { jobs: [] };
-    await this.db.write();
+    try {
+      await this.db.read();
+      this.db.data ||= { jobs: [] };
+      await this.db.write();
+    } catch (error) {
+      console.error('Failed to initialize local database:', error);
+      this.db.data = { jobs: [] }; 
+    }
   }
 
   public async addRecording(filePath: string): Promise<LocalJob> {
@@ -79,8 +84,10 @@ export class JobStateDB {
 
     for (const job of this.db.data.jobs) {
       if (vulnerableStates.includes(job.status)) {
-        // If the file is physically missing from the hard drive
-        if (!fs.existsSync(job.filePath)) {
+        try {
+          await fsPromises.access(job.filePath);
+        } catch {
+          // If access throws, the file is missing or inaccessible
           job.status = LocalJobStatus.DELETED;
           job.error = 'File was deleted from the local disk.';
           cleanedCount++;
@@ -98,7 +105,7 @@ export class JobStateDB {
 
   public async getPendingUploads(): Promise<LocalJob[]> {
     await this.ready;
-    return this.db.data.jobs.filter(j => j.status === LocalJobStatus.WAITING_UPLOAD);
+    return this.db.data!.jobs.filter(j => j.status === LocalJobStatus.WAITING_UPLOAD);
   }
 
   public async getReadyToFetch(): Promise<LocalJob[]> {
@@ -126,12 +133,46 @@ export class JobStateDB {
     await this.updateStatus(id, LocalJobStatus.COMPLETED);
   }
 
-  public async setError(id: string, errorMsg: string): Promise<void> {
+  /**
+   * Records an error for a job.
+   * @param isFatal If true (e.g., 401 Auth Error), skips retries and abandons the job immediately.
+   */
+  public async setError(id: string, errorMsg: string, isFatal: boolean = false): Promise<void> {
+    await this.ready;
+    const job = this.db.data!.jobs.find(j => j.jobId === id);
+    
+    if (job) {
+      job.error = errorMsg;
+
+      if (isFatal) {
+        job.status = LocalJobStatus.ABANDONED;
+      } else {
+        job.retryCount += 1;
+        
+        if (job.retryCount >= 4) {
+          job.status = LocalJobStatus.ABANDONED;
+        } else {
+          job.status = LocalJobStatus.FAILED;
+        }
+      }
+      
+      await this.db.write();
+    }
+  }
+  
+  /**
+   * Manually resets a FAILED or ABANDONED job back to a fresh state,
+   * allowing the upload worker to pick it up again.
+   */
+  public async resetJobForRetry(id: string): Promise<void> {
     await this.ready;
     const job = this.db.data.jobs.find(j => j.jobId === id);
+    
     if (job) {
-      job.status = LocalJobStatus.FAILED;
-      job.error = errorMsg;
+      job.retryCount = 0;
+      job.status = LocalJobStatus.WAITING_UPLOAD;
+      job.error = undefined;
+      
       await this.db.write();
     }
   }
@@ -139,5 +180,5 @@ export class JobStateDB {
   public async getJobByPath(filePath: string): Promise<LocalJob | undefined> {
     await this.ready;
     return this.db.data.jobs.find(j => j.filePath === filePath);
-    }
+  }
 }
