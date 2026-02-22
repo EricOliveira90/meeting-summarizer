@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { apiService } from '../src/services/api';
+import { apiService } from '../../src/services/api';
 import axios from 'axios';
 
 // Mock Axios
