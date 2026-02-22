@@ -8,8 +8,8 @@
 
 **Core Strategy:**
 
-1. **Client (CLI):** Controls OBS Studio for recording and syncs data via a local tunnel.
-2. **Server (Local API):** hosted on a Personal PC, processes heavy workloads (FFmpeg, WhisperX, Gemini).
+1. **Client (CLI):** Controls OBS Studio for recording and acts as an **Offline-First State Machine** that queues uploads and gracefully handles tunnel disconnects.
+2. **Server (Local API):** Hosted on a Personal PC, processes heavy workloads (FFmpeg, WhisperX, Gemini).
 3. **Bridge (Jump Box):** A Google Cloud VM acts as a secure rendezvous point to connect Client and Server without exposing home ports.
 
 ---
@@ -28,12 +28,6 @@ To bypass corporate firewalls and avoid exposing home network ports, the system 
 
 `Client App` -> `127.0.0.1:3000` (Work Laptop) -> `SSH Tunnel` -> `Cloud VM (loopback)` -> `SSH Tunnel` -> `127.0.0.1:3000` (Home PC) -> `Node.js Server`
 
-### Security Constraints
-
-1. **Binding:** Server must listen strictly on `127.0.0.1` (IPv4).
-2. **API Key:** All requests must include `x-api-key` header to prevent unauthorized access via the shared tunnel.
-3. **Timeouts:** Server `keepAliveTimeout` set to 120s to handle SSH latency.
-
 ---
 
 ## 3. Monorepo Structure & Tech Stack
@@ -42,41 +36,45 @@ To bypass corporate firewalls and avoid exposing home network ports, the system 
 
 * **Manager:** `npm workspaces`
 * **Runtime:** Node.js (Latest LTS)
-* **Process Manager:** `pm2` (Manages Server + SSH Tunnel on Home PC).
+* **Testing:** `vitest` (Dependency injection used for isolated testing).
 
 ### `packages/client` (The CLI)
 
 * **Framework:** `commander`, `inquirer`.
+* **State Management:** `lowdb` (Offline-first local queue).
 * **Network:** `axios` configured to talk to `127.0.0.1`.
 * **OBS Integration:** `obs-websocket-js`.
 
 ### `packages/server` (The Processing Hub)
 
 * **Framework:** `fastify` + `@fastify/multipart`.
-* **Queue:** `better-queue` (backed by `lowdb`).
+* **Queue:** `better-queue` (backed by its own `lowdb` instance).
 * **AI/ML:** `whisperx` (Python/PyTorch), `google-generative-ai`.
 
 ---
 
 ## 4. Shared Domain Models (`@shared`)
 
+*Rule: This package must remain pure. It contains ONLY Types and Enums. Do not install database drivers (like `lowdb`) here to ensure strict boundaries between Client and Server.*
+
 ### Enums
 
 ```typescript
-enum TranscriptionLanguage {
+// Unified Server Processing States
+export type ServerJobState = 'PENDING' | 'EXTRACTING' | 'TRANSCRIBING' | 'SUMMARIZING' | 'COMPLETED' | 'FAILED';
+
+export enum TranscriptionLanguage {
   AUTO = 'auto',
   ENGLISH = 'en',
   PORTUGUESE = 'pt',
   SPANISH = 'es'
 }
 
-enum AIPromptTemplate {
+export enum AIPromptTemplate {
   MEETING = 'meeting',   // Action Items & Decisions
   TRAINING = 'training', // Key Concepts & Q&A
   SUMMARY = 'summary'    // Brief TL;DR
 }
-
-```
 
 ---
 
