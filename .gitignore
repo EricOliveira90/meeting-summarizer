@@ -36,6 +36,9 @@ logs
 !.vscode/settings.json
 .idea
 
+# TypeScript cache
+*.tsbuildinfo
+
 # Agentic AI
 .gemini
 
