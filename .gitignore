@@ -37,7 +37,7 @@ logs
 .idea
 
 # TypeScript cache
-*.tsbuildinfo
+**/*.tsbuildinfo
 
 # Agentic AI
 .gemini
