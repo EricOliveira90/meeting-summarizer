@@ -1,173 +1,28 @@
-import fs from 'fs';
-import path from 'path';
-import inquirer from 'inquirer';
-import { apiService, configService } from '../services';
-import { jobState } from '../services/db';
-import { AIPromptTemplate, Job, TranscriptionLanguage } from '@meeting-summarizer/shared';
+import { Command } from 'commander';
+import chalk from 'chalk';
+import { SyncManager } from '../services/syncManager';
+import { ApiService } from '../services/api'; // Or import your singleton apiService
+import { JobStateDB } from '../services/db';
+import { ObsidianNoteService } from '../services/noteService';
 
-export async function syncCommand() {
-  console.log('🔄 Initializing Sync Workflow...');
+export const syncCommand = new Command('sync')
+  .description('Run the magic batch process (Push Pending -> Update States -> Fetch Results)')
+  .action(async () => {
+    try {
+      // 1. Instantiate the concrete implementations
+      const apiService = new ApiService();
+      const db = new JobStateDB();
+      const noteService = new ObsidianNoteService();
 
-  // 1. Check Server Status
-  const isOnline = await apiService.checkHealth();
-  if (!isOnline) {
-    console.error('❌ Server is OFFLINE. Please start the server and try again.');
-    return;
-  }
+      // 2. Inject them into the Manager
+      const syncManager = new SyncManager(apiService, db, noteService);
 
-  // 2. Select File
-  const recordingDir = configService.get('paths').output;
-  const selectedFile = await selectRecording(recordingDir);
-  
-  if (!selectedFile) {
-    console.log('No recording selected. Exiting.');
-    return;
-  }
-
-  const filePath = path.join(recordingDir, selectedFile);
-
-  let localJob = await jobState.getJobByPath(filePath);
-  if (!localJob) {
-    console.log('🆕 New file detected. Registering in local database...');
-    localJob = await jobState.addRecording(filePath);
-  }
-  const jobId = localJob.jobId;
-
-  // 3. Select Processing Options
-  // We use 'input' for numbers to allow empty (undefined) values easily
-  const options = await inquirer.prompt([
-    {
-      type: 'list',
-      name: 'language',
-      message: 'Select Audio Language (Whisper):',
-      choices: [
-        { name: 'Auto Detect 🤖', value: TranscriptionLanguage.AUTO },
-        { name: 'English (US)', value: TranscriptionLanguage.ENGLISH },
-        { name: 'Portuguese (BR)', value: TranscriptionLanguage.PORTUGUESE },
-        { name: 'Spanish', value: TranscriptionLanguage.SPANISH },
-      ],
-      default: TranscriptionLanguage.AUTO
-    },
-    {
-      type: 'input',
-      name: 'minSpeakers',
-      message: 'Min Speakers (Optional, press Enter to skip):',
-      filter: (input) => input ? parseInt(input, 10) : undefined,
-      validate: (input) => !input || !isNaN(parseInt(input)) || 'Please enter a number'
-    },
-    {
-      type: 'input',
-      name: 'maxSpeakers',
-      message: 'Max Speakers (Optional, press Enter to skip):',
-      filter: (input) => input ? parseInt(input, 10) : undefined,
-      validate: (input) => !input || !isNaN(parseInt(input)) || 'Please enter a number'
-    },
-    {
-      type: 'list',
-      name: 'template',
-      message: 'Select Summary Style (Gemini):',
-      choices: [
-        { name: 'Meeting Minutes 📝 (Action Items, Decisions)', value: AIPromptTemplate.MEETING },
-        { name: 'Training/Lecture 🎓 (Key Concepts, Q&A)', value: AIPromptTemplate.TRAINING },
-        { name: 'Brief Summary 📄 (TL;DR)', value: AIPromptTemplate.SUMMARY },
-      ],
-      default: AIPromptTemplate.MEETING
+      // 3. Execute the batch cycle
+      await syncManager.runFullSyncCycle();
+      
+    } catch (error) {
+      console.error(chalk.red('\n❌ Sync process encountered a critical error:'));
+      console.error(error instanceof Error ? error.message : error);
+      process.exit(1);
     }
-  ]);
-
-  try {
-    // 4. Upload
-    console.log(`\n📤 Uploading: ${selectedFile}`);
-    console.log(`   Config: [Lang: ${options.language} | Speakers: ${options.minSpeakers || '?'} - ${options.maxSpeakers || '?'} | Tmpl: ${options.template}]`);
-    
-    const uploadResult = await apiService.uploadMeeting(filePath, {
-      jobId: jobId,
-      language: options.language,
-      template: options.template,
-      minSpeakers: options.minSpeakers,
-      maxSpeakers: options.maxSpeakers
-    });
-    
-    if (!uploadResult.success) {
-      console.error(`❌ Upload failed: ${uploadResult.message}`);
-      return;
-    }
-
-    console.log(`✅ Upload Complete. Job ID: ${uploadResult.jobId}`);
-
-    // 5. Poll for Completion
-    const completedJob = await pollForCompletion(uploadResult.jobId);
-
-    if (completedJob) {
-      await saveToObsidian(completedJob, selectedFile);
-    }
-
-  } catch (error: any) {
-    console.error('❌ Sync Error:', error.message);
-  }
-}
-
-// ... (Helper functions selectRecording, pollForCompletion, saveToObsidian remain unchanged)
-async function selectRecording(dir: string): Promise<string | null> {
-  if (!fs.existsSync(dir)) return null;
-  const files = fs.readdirSync(dir)
-    // .filter(f => f.endsWith('.mkv'))
-    .sort((a, b) => fs.statSync(path.join(dir, b)).mtime.getTime() - fs.statSync(path.join(dir, a)).mtime.getTime());
-  if (files.length === 0) return null;
-  const { file } = await inquirer.prompt([{ type: 'list', name: 'file', message: 'Select a meeting:', choices: files, pageSize: 10 }]);
-  return file;
-}
-
-async function pollForCompletion(jobId: string): Promise<Job | null> {
-  console.log('\n⏳ Processing started. Please wait...');
-  return new Promise((resolve) => {
-    const interval = setInterval(async () => {
-      try {
-        const job = await apiService.getJobStatus(jobId);
-        process.stdout.write(`\r   Current Status: [ ${job.status} ] `);
-        
-        if (job.status === 'COMPLETED') {
-          clearInterval(interval);
-          console.log('\n\n✨ Processing Finished!');
-          resolve(job);
-        } else if (job.status === 'FAILED') {
-          clearInterval(interval);
-          console.error(`\n\n❌ Job Failed: ${job.error}`);
-          resolve(null);
-        }
-      } catch (err) {}
-    }, 2000);
   });
-}
-
-async function saveToObsidian(job: Job, originalFilename: string) {
-  const vaultPath = configService.get('paths').obsidianVault;
-  if (!vaultPath || !fs.existsSync(vaultPath)) {
-    // If no vault, just dump to console
-    console.log('\n--- SUMMARY ---\n');
-    console.log(job.summaryText); 
-    return;
-  }
-  const baseName = path.parse(originalFilename).name;
-  const fullPath = path.join(vaultPath, `${baseName}.md`);
-  const fileContent = `---
-tags: [meeting, transcript, ai-summary]
-date: ${new Date().toISOString().split('T')[0]}
-original_file: ${originalFilename}
----
-# 📝 ${path.parse(originalFilename).name.replace(/_/g, ' ')}
-
-## 🧠 AI Executive Summary
-${job.summaryText || '_No summary generated._'}
-
----
-## 💬 Full Transcript
-<details>
-<summary>Click to expand full transcript</summary>
-
-${job.transcriptText || '_No transcript available._'}
-</details>
-`;
-  try { fs.writeFileSync(fullPath, fileContent, 'utf-8'); console.log(`\n📚 Saved to: ${fullPath}`); } 
-  catch (err) { console.error('❌ Failed to write file:', err); }
-}

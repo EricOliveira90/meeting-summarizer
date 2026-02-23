@@ -19,8 +19,10 @@ export enum AIPromptTemplate {
   SUMMARY = 'summary'    // Brief overview, TL;DR
 }
 
+/**
+ * Interface representing the AI processing configuration for a job.
+ */
 export interface UploadOptions {
-  jobId: string;
   language: TranscriptionLanguage;
   template: AIPromptTemplate;
   minSpeakers?: number;

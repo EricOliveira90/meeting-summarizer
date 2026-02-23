@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { JobStateDB, LocalJobStatus } from '../../src/services/db';
 import fs from 'fs';
 import fsPromises from 'fs/promises'; // Import the promises API
 import path from 'path';
+import { JobStateDB } from '../../src/services/db';
+import { ClientJobStatus } from '../../src/domain/clientJob';
 
 describe('Database Service (db.ts)', () => {
     let testDb: JobStateDB;
@@ -37,34 +38,34 @@ describe('Database Service (db.ts)', () => {
 
         // Assert
         expect(job.filePath).toBe('C:\\fake\\video.mkv');
-        expect(job.status).toBe(LocalJobStatus.WAITING_UPLOAD);
+        expect(job.status).toBe(ClientJobStatus.WAITING_UPLOAD);
 
         // Verify it actually saved to our test DB file
         const allJobs = await testDb.getAll();
         expect(allJobs.length).toBe(1);
     });
-  
+
     it('should leave the job as WAITING_UPLOAD if the file exists', async () => {
         // Arrange
         await testDb.addRecording('C:\\fake\\safe-video.mkv');
-        
+
         // fsPromises.access resolves successfully (with undefined) if the file exists
-        vi.mocked(fsPromises.access).mockResolvedValue(undefined); 
+        vi.mocked(fsPromises.access).mockResolvedValue(undefined);
 
         // Act
         await testDb.cleanPhantomFiles();
 
         // Assert
         const jobs = await testDb.getAll();
-        expect(jobs[0].status).toBe(LocalJobStatus.WAITING_UPLOAD);
+        expect(jobs[0].status).toBe(ClientJobStatus.WAITING_UPLOAD);
     });
-  
+
     it('should leave the job as FAILED if the file exists', async () => {
         // Arrange
         await testDb.addRecording('C:\\fake\\safe-video.mkv');
         const initialJobs = await testDb.getAll();
-        await testDb.updateStatus(initialJobs[0].jobId, LocalJobStatus.FAILED)
-        
+        await testDb.updateStatus(initialJobs[0].jobId, ClientJobStatus.FAILED)
+
         // File exists -> resolve successfully
         vi.mocked(fsPromises.access).mockResolvedValue(undefined);
 
@@ -73,22 +74,22 @@ describe('Database Service (db.ts)', () => {
 
         // Assert
         const finalJobs = await testDb.getAll();
-        expect(finalJobs[0].status).toBe(LocalJobStatus.FAILED);
+        expect(finalJobs[0].status).toBe(ClientJobStatus.FAILED);
     });
 
     it('should mark a WAITING_UPLOAD job as DELETED if the file is missing from disk', async () => {
         // Arrange
-        await testDb.addRecording('C:\\fake\\deleted-video.mkv'); 
-        
+        await testDb.addRecording('C:\\fake\\deleted-video.mkv');
+
         // fsPromises.access rejects/throws if the file is missing
-        vi.mocked(fsPromises.access).mockRejectedValue(new Error('ENOENT: no such file or directory')); 
+        vi.mocked(fsPromises.access).mockRejectedValue(new Error('ENOENT: no such file or directory'));
 
         // Act
         const cleanedCount = await testDb.cleanPhantomFiles();
 
         // Assert
         const jobs = await testDb.getAll();
-        expect(jobs[0].status).toBe(LocalJobStatus.DELETED);
+        expect(jobs[0].status).toBe(ClientJobStatus.DELETED);
         expect(jobs[0].error).toContain('File was deleted from the local disk.');
         expect(cleanedCount).toBe(1);
     });
@@ -99,7 +100,7 @@ describe('Database Service (db.ts)', () => {
         // Arrange
         const job1 = await testDb.addRecording('C:\\fake\\video1.mkv');
         const job2 = await testDb.addRecording('C:\\fake\\video2.mkv');
-        await testDb.updateStatus(job2.jobId, LocalJobStatus.COMPLETED);
+        await testDb.updateStatus(job2.jobId, ClientJobStatus.COMPLETED);
 
         // Act
         const pending = await testDb.getPendingUploads();
@@ -113,7 +114,7 @@ describe('Database Service (db.ts)', () => {
         // Arrange
         const job1 = await testDb.addRecording('C:\\fake\\video1.mkv');
         const job2 = await testDb.addRecording('C:\\fake\\video2.mkv');
-        await testDb.updateStatus(job1.jobId, LocalJobStatus.READY);
+        await testDb.updateStatus(job1.jobId, ClientJobStatus.READY);
 
         // Act
         const readyJobs = await testDb.getReadyToFetch();
@@ -126,13 +127,13 @@ describe('Database Service (db.ts)', () => {
     it('should retrieve all jobs sorted by newest first (descending order)', async () => {
         // Arrange
         vi.useFakeTimers();
-        
+
         vi.setSystemTime(new Date('2026-01-01T10:00:00Z'));
         const olderJob = await testDb.addRecording('C:\\fake\\old.mkv');
 
         vi.setSystemTime(new Date('2026-01-01T11:00:00Z'));
         const newerJob = await testDb.addRecording('C:\\fake\\new.mkv');
-        
+
         vi.useRealTimers();
 
         // Act
@@ -165,11 +166,11 @@ describe('Database Service (db.ts)', () => {
         const job = await testDb.addRecording('C:\\fake\\video.mkv');
 
         // Act
-        await testDb.updateStatus(job.jobId, LocalJobStatus.PROCESSING);
+        await testDb.updateStatus(job.jobId, ClientJobStatus.PROCESSING);
 
         // Assert
         const allJobs = await testDb.getAll();
-        expect(allJobs[0].status).toBe(LocalJobStatus.PROCESSING);
+        expect(allJobs[0].status).toBe(ClientJobStatus.PROCESSING);
     });
 
     it('should mark a job as COMPLETED', async () => {
@@ -181,7 +182,7 @@ describe('Database Service (db.ts)', () => {
 
         // Assert
         const allJobs = await testDb.getAll();
-        expect(allJobs[0].status).toBe(LocalJobStatus.COMPLETED);
+        expect(allJobs[0].status).toBe(ClientJobStatus.COMPLETED);
     });
 
     // --- Error, Retry, and Abandonment Methods ---
@@ -196,7 +197,7 @@ describe('Database Service (db.ts)', () => {
 
         // Assert
         const allJobs = await testDb.getAll();
-        expect(allJobs[0].status).toBe(LocalJobStatus.FAILED);
+        expect(allJobs[0].status).toBe(ClientJobStatus.FAILED);
         expect(allJobs[0].retryCount).toBe(1);
         expect(allJobs[0].error).toBe(errorMessage);
     });
@@ -204,7 +205,7 @@ describe('Database Service (db.ts)', () => {
     it('should set status to ABANDONED after 4 retries', async () => {
         // Arrange
         const job = await testDb.addRecording('C:\\fake\\video.mkv');
-        
+
         // Act - Simulate failing 4 times
         await testDb.setError(job.jobId, 'Error 1');
         await testDb.setError(job.jobId, 'Error 2');
@@ -213,7 +214,7 @@ describe('Database Service (db.ts)', () => {
 
         // Assert
         const allJobs = await testDb.getAll();
-        expect(allJobs[0].status).toBe(LocalJobStatus.ABANDONED);
+        expect(allJobs[0].status).toBe(ClientJobStatus.ABANDONED);
         expect(allJobs[0].retryCount).toBe(4);
         expect(allJobs[0].error).toBe('Fatal Error 4');
     });
@@ -221,7 +222,7 @@ describe('Database Service (db.ts)', () => {
     it('should reset an ABANDONED job back to WAITING_UPLOAD with 0 retries', async () => {
         // Arrange
         const job = await testDb.addRecording('C:\\fake\\video.mkv');
-        
+
         // Force it into an ABANDONED state
         await testDb.setError(job.jobId, 'Error 1');
         await testDb.setError(job.jobId, 'Error 2');
@@ -233,7 +234,7 @@ describe('Database Service (db.ts)', () => {
 
         // Assert
         const allJobs = await testDb.getAll();
-        expect(allJobs[0].status).toBe(LocalJobStatus.WAITING_UPLOAD);
+        expect(allJobs[0].status).toBe(ClientJobStatus.WAITING_UPLOAD);
         expect(allJobs[0].retryCount).toBe(0);
         expect(allJobs[0].error).toBeUndefined(); // Should clear the old error
     });
@@ -248,9 +249,9 @@ describe('Database Service (db.ts)', () => {
 
         // Assert
         const allJobs = await testDb.getAll();
-        expect(allJobs[0].status).toBe(LocalJobStatus.ABANDONED);
+        expect(allJobs[0].status).toBe(ClientJobStatus.ABANDONED);
         // The retry count should not increment on a fatal error
-        expect(allJobs[0].retryCount).toBe(0); 
+        expect(allJobs[0].retryCount).toBe(0);
         expect(allJobs[0].error).toBe(errorMessage);
     });
 
@@ -264,7 +265,7 @@ describe('Database Service (db.ts)', () => {
 
         // Assert
         const allJobs = await testDb.getAll();
-        expect(allJobs[0].status).toBe(LocalJobStatus.WAITING_UPLOAD);
+        expect(allJobs[0].status).toBe(ClientJobStatus.WAITING_UPLOAD);
         expect(allJobs[0].retryCount).toBe(0);
         expect(allJobs[0].error).toBeUndefined();
     });

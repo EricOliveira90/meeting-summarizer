@@ -3,38 +3,23 @@ import fs from 'fs';
 import FormData from 'form-data';
 import http from 'http';
 import { configService } from './config';
-import { 
+import {
   UploadOptions,
   Job,
   UploadResponse,
   ErrorResponse
-} from '@meeting-summarizer/shared'; 
+} from '@meeting-summarizer/shared';
+import { HealthStatus, IApiService, SyncError } from '../domain/clientJob';
 
-// Structured error to help syncManager.ts decide if a job is FAILED (retry) or ABANDONED (fatal)
-export class SyncError extends Error {
-  constructor(
-    public message: string,
-    public isTransient: boolean, // true for ECONNREFUSED/ECONNRESET (Tunnel down), false for 401 (Bad Key)
-    public statusCode?: number
-  ) {
-    super(message);
-    this.name = 'SyncError';
-  }
-}
 
-export interface HealthStatus {
-  isOnline: boolean;
-  latencyMs: number;
-}
-
-export class ApiService {
+export class ApiService implements IApiService {
   private _client: AxiosInstance | null = null;
 
   private get client(): AxiosInstance {
     if (!this._client) {
       const { ip, port, apiKey } = configService.get('server');
       const baseURL = `http://${ip}:${port}`;
-      
+
       this._client = axios.create({
         baseURL,
         timeout: 10000,
@@ -57,9 +42,9 @@ export class ApiService {
     const start = Date.now();
     try {
       const res = await this.client.get('/');
-      return { 
-        isOnline: res.status === 200, 
-        latencyMs: Date.now() - start 
+      return {
+        isOnline: res.status === 200,
+        latencyMs: Date.now() - start
       };
     } catch (error) {
       return { isOnline: false, latencyMs: 0 };
@@ -67,7 +52,8 @@ export class ApiService {
   }
 
   public async uploadMeeting(
-    filePath: string, 
+    filePath: string,
+    id: string,
     options: UploadOptions,
     onProgress?: (percentCompleted: number) => void
   ): Promise<UploadResponse> {
@@ -77,14 +63,14 @@ export class ApiService {
 
     const { apiKey } = configService.get('server');
     const form = new FormData();
-    
+
     form.append('file', fs.createReadStream(filePath));
 
     try {
       const response = await this.client.post<UploadResponse>('/upload', form, {
         headers: {
           ...form.getHeaders(),
-          'x-job-id': options.jobId,
+          'x-job-id': id,
           'x-language': options.language,
           'x-template': options.template,
           'x-min-speakers': options.minSpeakers?.toString() || '',
@@ -132,13 +118,13 @@ export class ApiService {
       const axiosError = error as AxiosError<ErrorResponse>;
       const statusCode = axiosError.response?.status;
       const msg = axiosError.response?.data?.error || axiosError.message;
-      
+
       // Determine if this is a transient network error (tunnel down) or fatal auth error
       const isTransient = !statusCode || statusCode >= 500 || ['ECONNREFUSED', 'ECONNRESET'].includes(axiosError.code || '');
-      
+
       return new SyncError(msg, isTransient, statusCode);
     }
-    
+
     if (error instanceof Error) return error;
     return new Error('Unknown API Error occurred');
   }
