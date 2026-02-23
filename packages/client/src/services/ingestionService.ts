@@ -40,15 +40,12 @@ export class IngestionService implements IIngestion {
             const existingJob = await this.db.getJobByPath(fullPath);
 
             if (!existingJob) {
-                console.log(`\n📄 Found new untracked recording: ${file}`);
                 await this.ingestFile(fullPath);
                 newFilesFound++;
             }
         }
 
-        if (newFilesFound === 0) {
-            console.log('✅ Directory scanned. All files are currently tracked.');
-        } else {
+        if (newFilesFound > 0) {
             console.log(`\n✅ Successfully ingested ${newFilesFound} new file(s).`);
         }
     }
@@ -76,8 +73,6 @@ export class IngestionService implements IIngestion {
 
         // 5. Update Database with selected options
         await this.db.updateOptions(job.jobId, config);
-
-        console.log(`✅ Job ${job.jobId} created and queued for upload.`);
     }
 
     /**
@@ -111,16 +106,11 @@ export class IngestionService implements IIngestion {
 
                 fs.renameSync(oldPath, newPath);
 
-                console.log(`\n✅ File renamed successfully:`);
-                console.log(`From: ${originalFilename}`);
-                console.log(`To:   ${newFilename}\n`);
-
                 return newPath;
 
             } catch (error) {
                 const err = error as NodeError;
                 if (err.code === 'EBUSY' && attempt < maxAttempts) {
-                    console.log(`File locked, retrying (${attempt}/${maxAttempts})...`);
                 } else {
                     console.error(`❌ Failed to rename file after ${attempt} attempts:`, err.message);
                     return null;
