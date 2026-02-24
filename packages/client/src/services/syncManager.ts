@@ -10,7 +10,7 @@ export class SyncManager {
         private ingestion: IIngestion,
         private api: IApiService,
         private db: IClientDb<ClientJob>,
-        private noteService: INote
+        private note: INote
     ) { }
 
     /**
@@ -71,7 +71,7 @@ export class SyncManager {
                 const finalPayload = await this.api.getJobStatus(job.jobId);
 
                 if (finalPayload.summaryText) {
-                    await this.noteService.saveNote(job, finalPayload.summaryText, finalPayload.transcriptText)
+                    await this.note.saveNote(job, finalPayload.summaryText, finalPayload.transcriptText)
                     await this.db.markCompleted(job.jobId);
                 }
             } catch (error) {

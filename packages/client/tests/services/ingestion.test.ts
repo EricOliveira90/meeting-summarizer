@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
-import { IngestionService } from '../../src/services/ingestionService';
+import { IngestionService } from '../../src/services/ingestion';
 import { configService } from '../../src/services/config';
 import { promptForMeetingTitle, promptForJobConfig } from '../../src/ui/prompts';
 import { TranscriptionLanguage, AIPromptTemplate } from '@meeting-summarizer/shared';
