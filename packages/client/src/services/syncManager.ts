@@ -1,4 +1,4 @@
-import { IClientDb, ClientJob, ClientJobStatus, IApiService, INote, SyncError, IIngestion } from '../domain/clientJob';
+import { IClientDb, ClientJob, ClientJobStatus, IApiService, INote, SyncError, IIngestion, IFileSystem } from '../domain/clientJob';
 import { UploadOptions } from '@meeting-summarizer/shared';
 import { promptForJobConfig } from '../ui/prompts';
 
@@ -7,10 +7,11 @@ export class SyncManager {
     private readonly MAX_RETRIES = 3;
 
     constructor(
-        private ingestion: IIngestion,
         private api: IApiService,
         private db: IClientDb<ClientJob>,
-        private note: INote
+        private note: INote,
+        private ingestion: IIngestion,
+        private fs: IFileSystem
     ) { }
 
     /**
@@ -61,7 +62,7 @@ export class SyncManager {
 
     /**
      * The Artifact Downloader
-     * Retrieves final text payloads and saves them to Obsidian.
+     * Retrieves final text payloads and saves them to local .txt files and Obsidian.
      */
     private async fetchResults(): Promise<void> {
         const readyJobs = await this.db.getReadyToFetch();
@@ -71,6 +72,19 @@ export class SyncManager {
                 const finalPayload = await this.api.getJobStatus(job.jobId);
 
                 if (finalPayload.summaryText) {
+                    // Strip the media extension and create the .txt base name
+                    const baseName = job.originalFilename.replace(/\.[^/.]+$/, "");
+                    
+                    // NEW: Traverse up two levels from src/services to the package root
+                    const summaryPath = this.fs.joinPaths(__dirname, '..', '..', 'summaries', `${baseName}_summary.txt`);
+                    await this.fs.writeFile(summaryPath, finalPayload.summaryText);
+
+                    if (finalPayload.transcriptText) {
+                        const transcriptPath = this.fs.joinPaths(__dirname, '..', '..', 'transcriptions', `${baseName}_transcription.txt`);
+                        await this.fs.writeFile(transcriptPath, finalPayload.transcriptText);
+                    }
+
+                    // Pre-existing logic: Save to Obsidian and mark as complete
                     await this.note.saveNote(job, finalPayload.summaryText, finalPayload.transcriptText)
                     await this.db.markCompleted(job.jobId);
                 }
