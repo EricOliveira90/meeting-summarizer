@@ -16,6 +16,7 @@ describe('SyncManager', () => {
   let mockDb: any;
   let mockNote: any;
   let mockIngestion: any;
+  let mockFileSystem: any;
   let syncManager: SyncManager;
 
   beforeEach(() => {
@@ -52,7 +53,14 @@ describe('SyncManager', () => {
       ingestFile: vi.fn().mockResolvedValue(undefined)
     };
 
-    syncManager = new SyncManager(mockIngestion, mockApi, mockDb, mockNote);
+    // NEW: Initialize mockFileSystem
+    mockFileSystem = {
+      joinPaths: vi.fn().mockImplementation((...parts: string[]) => parts.join('/')),
+      writeFile: vi.fn().mockResolvedValue(undefined)
+    };
+
+    // NEW: Inject mockFileSystem into SyncManager
+    syncManager = new SyncManager(mockApi, mockDb, mockNote, mockIngestion, mockFileSystem);
     vi.clearAllMocks();
   });
 
@@ -183,7 +191,8 @@ describe('SyncManager', () => {
     
     it('should save notes and mark as completed when payloads exist', async () => {
       // Arrange
-      const fakeJob = { jobId: '789', status: ClientJobStatus.READY };
+      // FIXED: Added originalFilename to prevent regex crash
+      const fakeJob = { jobId: '789', status: ClientJobStatus.READY, originalFilename: 'meeting.mkv' };
       mockDb.getReadyToFetch.mockResolvedValue([fakeJob]);
       mockApi.getJobStatus.mockResolvedValue({ 
         jobId: '789', 
@@ -197,6 +206,42 @@ describe('SyncManager', () => {
       // Assert
       expect(mockNote.saveNote).toHaveBeenCalledWith(fakeJob, '# Meeting Summary', 'Hello world');
       expect(mockDb.markCompleted).toHaveBeenCalledWith('789');
+    });
+
+    it('should save the transcript and summary to local .txt files to keep the DB lean', async () => {
+      // Arrange
+      const fakeJob = { 
+        jobId: '999', 
+        status: ClientJobStatus.READY, 
+        originalFilename: 'Q3_Planning_Meeting.mp3' 
+      };
+      mockDb.getReadyToFetch.mockResolvedValue([fakeJob]);
+      mockApi.getJobStatus.mockResolvedValue({ 
+        jobId: '999', 
+        summaryText: 'Summary content', 
+        transcriptText: 'Transcript content' 
+      });
+
+      // Act
+      await syncManager['fetchResults']();
+    
+      // Assert
+      // 1. Calculate the __dirname of the source file by replacing 'tests' with 'src'
+      const srcDirName = __dirname.replace('tests', 'src');
+      
+      // 2. Verify path construction checks for the upward traversal and new file suffixes
+      expect(mockFileSystem.joinPaths).toHaveBeenCalledWith(srcDirName, '..', '..', 'summaries', 'Q3_Planning_Meeting_summary.txt');
+      expect(mockFileSystem.joinPaths).toHaveBeenCalledWith(srcDirName, '..', '..', 'transcriptions', 'Q3_Planning_Meeting_transcription.txt');
+
+      // 2. Verify file system writes (mockFileSystem.joinPaths joins with '/' in our mock setup)
+      const expectedSummaryPath = [srcDirName, '..', '..', 'summaries', 'Q3_Planning_Meeting_summary.txt'].join('/');
+      const expectedTranscriptPath = [srcDirName, '..', '..', 'transcriptions', 'Q3_Planning_Meeting_transcription.txt'].join('/');
+      
+      expect(mockFileSystem.writeFile).toHaveBeenCalledWith(expectedSummaryPath, 'Summary content');
+      expect(mockFileSystem.writeFile).toHaveBeenCalledWith(expectedTranscriptPath, 'Transcript content');
+      
+      // 3. Ensure the DB is just marked completed, without storing the text
+      expect(mockDb.markCompleted).toHaveBeenCalledWith('999');
     });
   });
 });
