@@ -1,4 +1,4 @@
-import { AIPromptTemplate, TranscriptionLanguage, UploadOptions, UploadResponse, Job } from "@meeting-summarizer/shared";
+import { UploadOptions, UploadResponse, Job } from "@meeting-summarizer/shared";
 
 /**
  * Contract for handling local file discovery and database ingestion.
@@ -109,4 +109,13 @@ export interface IApiService {
    * Fetches all jobs currently known to the server.
    */
   getJobs(): Promise<Job[]>;
+}
+
+export interface IFileSystem {
+  writeFile(filePath: string, content: string): Promise<void>;
+}
+
+export interface ObsidianConfig {
+  vaultPath: string;
+  notesFolder: string;
 }
