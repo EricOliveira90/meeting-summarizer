@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
-import fsPromises from 'fs/promises'; // Import the promises API
 import path from 'path';
 import { JobStateDB } from '../../src/services/db';
 import { ClientJobStatus } from '../../src/domain/clientJob';
 
-describe('Database Service (db.ts)', () => {
+describe('Database Service', () => {
+    let mockFileSystem: any;
     let testDb: JobStateDB;
     const testDbPath = path.join(__dirname, 'test-db.json');
 
@@ -16,10 +16,11 @@ describe('Database Service (db.ts)', () => {
         }
 
         // 2. Create a fresh instance pointing to the test file
-        testDb = new JobStateDB(testDbPath);
+        mockFileSystem = {
+            fileExists: vi.fn().mockResolvedValue(true)
+        };
 
-        // 3. Spy on the async fsPromises.access instead of fs.existsSync
-        vi.spyOn(fsPromises, 'access');
+        testDb = new JobStateDB(mockFileSystem, testDbPath);
     });
 
     afterEach(() => {
@@ -49,9 +50,6 @@ describe('Database Service (db.ts)', () => {
         // Arrange
         await testDb.addRecording('C:\\fake\\safe-video.mkv');
 
-        // fsPromises.access resolves successfully (with undefined) if the file exists
-        vi.mocked(fsPromises.access).mockResolvedValue(undefined);
-
         // Act
         await testDb.cleanPhantomFiles();
 
@@ -66,9 +64,6 @@ describe('Database Service (db.ts)', () => {
         const initialJobs = await testDb.getAll();
         await testDb.updateStatus(initialJobs[0].jobId, ClientJobStatus.FAILED)
 
-        // File exists -> resolve successfully
-        vi.mocked(fsPromises.access).mockResolvedValue(undefined);
-
         // Act
         await testDb.cleanPhantomFiles();
 
@@ -82,7 +77,7 @@ describe('Database Service (db.ts)', () => {
         await testDb.addRecording('C:\\fake\\deleted-video.mkv');
 
         // fsPromises.access rejects/throws if the file is missing
-        vi.mocked(fsPromises.access).mockRejectedValue(new Error('ENOENT: no such file or directory'));
+        mockFileSystem.fileExists.mockResolvedValue(false);
 
         // Act
         const cleanedCount = await testDb.cleanPhantomFiles();
