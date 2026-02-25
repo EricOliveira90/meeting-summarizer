@@ -66,4 +66,35 @@ describe('NodeFileSystem', () => {
             expect(result).toBe(expected);
         });
     });
+
+    describe('NodeFileSystem - fileExists', () => {
+        it('should return true when fsPromises.access succeeds (file exists)', async () => {
+            const filePath = '/var/app/data/real-audio.mp3';
+            
+            // Simulate the file existing by resolving successfully
+            vi.mocked(fsPromises.access).mockResolvedValueOnce(undefined);
+
+            const result = await fileSystem.fileExists(filePath);
+
+            expect(fsPromises.access).toHaveBeenCalledWith(filePath);
+            expect(fsPromises.access).toHaveBeenCalledTimes(1);
+            expect(result).toBe(true);
+        });
+
+        it('should return false when fsPromises.access throws (file is missing)', async () => {
+            const filePath = '/var/app/data/phantom-audio.mp3';
+            
+            // Simulate the file missing by throwing an ENOENT error
+            const noSuchFileError = new Error('ENOENT: no such file or directory');
+            vi.mocked(fsPromises.access).mockRejectedValueOnce(noSuchFileError);
+
+            const result = await fileSystem.fileExists(filePath);
+
+            expect(fsPromises.access).toHaveBeenCalledWith(filePath);
+            expect(fsPromises.access).toHaveBeenCalledTimes(1);
+            
+            // CRITICAL ASSERTION: The error was swallowed and converted to a boolean
+            expect(result).toBe(false); 
+        });
+    });
 });
