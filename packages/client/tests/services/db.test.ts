@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
 import path from 'path';
-import { JobStateDB } from '../../src/services/db';
+import { LowDB } from '../../src/services/db';
 import { ClientJobStatus } from '../../src/domain/clientJob';
 
 describe('Database Service', () => {
     let mockFileSystem: any;
-    let testDb: JobStateDB;
+    let testDb: LowDB;
     const testDbPath = path.join(__dirname, 'test-db.json');
 
     beforeEach(() => {
@@ -20,7 +20,7 @@ describe('Database Service', () => {
             fileExists: vi.fn().mockResolvedValue(true)
         };
 
-        testDb = new JobStateDB(mockFileSystem, testDbPath);
+        testDb = new LowDB(mockFileSystem, testDbPath);
     });
 
     afterEach(() => {

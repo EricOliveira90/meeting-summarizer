@@ -9,7 +9,7 @@ interface ClientSchema {
   jobs: ClientJob[];
 }
 
-export class JobStateDB implements IClientDb<ClientJob> {
+export class LowDB implements IClientDb<ClientJob> {
   private fs: IFileManager
   private db: Low<ClientSchema>;
   private ready: Promise<void>;
