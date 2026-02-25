@@ -114,7 +114,8 @@ export interface IApiService {
 export interface IFileManager {
   readFile(filePath: string): Promise<string>;
   writeFile(filePath: string, content: string): Promise<void>;
-  joinPaths(...parts: string[]): string; 
+  fileExists(filePath: string): Promise<boolean>;
+  joinPaths(...parts: string[]): string;
 }
 
 export interface ObsidianConfig {

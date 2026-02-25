@@ -26,4 +26,13 @@ export class NodeFileSystem implements IFileManager {
         // Leverages Node's native path.join to handle OS-specific slashes (\ vs /) perfectly
         return path.join(this.baseDir, ...parts);
     }
+
+    public async fileExists(filePath: string): Promise<boolean> {
+        try {
+            await fsPromises.access(filePath);
+            return true;
+        } catch {
+            return false;
+        }
+    }
 }
