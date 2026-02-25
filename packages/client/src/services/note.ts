@@ -1,6 +1,6 @@
 import { INote, ClientJob } from '../domain/clientJob';
 import { AIPromptTemplate } from '@meeting-summarizer/shared';
-import { IFileSystem, ObsidianConfig } from '../domain/clientJob'; // Assuming types from previous step
+import { IFileManager, ObsidianConfig } from '../domain/clientJob'; // Assuming types from previous step
 
 export class NoteService implements INote {
     // Basic template map to fulfill the test's string-matching expectations
@@ -11,7 +11,7 @@ export class NoteService implements INote {
     };
 
     constructor(
-        private readonly fs: IFileSystem,
+        private readonly fs: IFileManager,
         private readonly config: ObsidianConfig
     ) {}
 
