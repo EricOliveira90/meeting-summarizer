@@ -1,9 +1,8 @@
 import { Low } from 'lowdb';
 import { JSONFile } from 'lowdb/node';
 import path from 'path';
-import fsPromises from 'fs/promises';
 import { randomUUID } from 'crypto';
-import { ClientJob, ClientJobStatus, IClientDb } from '../domain/clientJob';
+import { ClientJob, ClientJobStatus, IClientDb, IFileManager } from '../domain/clientJob';
 import { UploadOptions } from '@meeting-summarizer/shared';
 
 interface ClientSchema {
@@ -11,10 +10,12 @@ interface ClientSchema {
 }
 
 export class JobStateDB implements IClientDb<ClientJob> {
+  private fs: IFileManager
   private db: Low<ClientSchema>;
   private ready: Promise<void>;
 
-  constructor(dbPath?: string) {
+  constructor(fileManager: IFileManager, dbPath?: string) {
+    this.fs = fileManager
     const finalPath = dbPath || path.join(process.cwd(), 'client-db.json');
     const adapter = new JSONFile<ClientSchema>(finalPath);
     this.db = new Low(adapter, { jobs: [] });
@@ -65,10 +66,9 @@ export class JobStateDB implements IClientDb<ClientJob> {
 
     for (const job of this.db.data.jobs) {
       if (vulnerableStates.includes(job.status)) {
-        try {
-          await fsPromises.access(job.filePath);
-        } catch {
-          // If access throws, the file is missing or inaccessible
+        const exists = await this.fs.fileExists(job.filePath);
+        
+        if (!exists) {
           job.status = ClientJobStatus.DELETED;
           job.error = 'File was deleted from the local disk.';
           cleanedCount++;
