@@ -1,4 +1,4 @@
-import { IClientDb, ClientJob, ClientJobStatus, IApiService, INote, SyncError, IIngestion, IFileSystem } from '../domain/clientJob';
+import { IClientDb, ClientJob, ClientJobStatus, IApiService, INote, SyncError, IIngestion, IFileManager } from '../domain/clientJob';
 import { UploadOptions } from '@meeting-summarizer/shared';
 import { promptForJobConfig } from '../ui/prompts';
 
@@ -11,7 +11,7 @@ export class SyncManager {
         private db: IClientDb<ClientJob>,
         private note: INote,
         private ingestion: IIngestion,
-        private fs: IFileSystem
+        private fs: IFileManager
     ) { }
 
     /**
@@ -76,11 +76,11 @@ export class SyncManager {
                     const baseName = job.originalFilename.replace(/\.[^/.]+$/, "");
                     
                     // NEW: Traverse up two levels from src/services to the package root
-                    const summaryPath = this.fs.joinPaths(__dirname, '..', '..', 'summaries', `${baseName}_summary.txt`);
+                    const summaryPath = this.fs.joinPaths('summaries', `${baseName}_summary.txt`);
                     await this.fs.writeFile(summaryPath, finalPayload.summaryText);
 
                     if (finalPayload.transcriptText) {
-                        const transcriptPath = this.fs.joinPaths(__dirname, '..', '..', 'transcriptions', `${baseName}_transcription.txt`);
+                        const transcriptPath = this.fs.joinPaths('transcriptions', `${baseName}_transcription.txt`);
                         await this.fs.writeFile(transcriptPath, finalPayload.transcriptText);
                     }
 
