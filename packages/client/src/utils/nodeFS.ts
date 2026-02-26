@@ -22,9 +22,14 @@ export class NodeFileSystem implements IFileManager {
         await fsPromises.writeFile(filePath, content, { encoding: 'utf-8' });
     }
 
-    public joinPaths(...parts: string[]): string {
+    public joinPathsInProjectFolder(...parts: string[]): string {
         // Leverages Node's native path.join to handle OS-specific slashes (\ vs /) perfectly
         return path.join(this.baseDir, ...parts);
+    }
+
+    public joinPaths(...parts: string[]): string {
+        // Leverages Node's native path.join to handle OS-specific slashes (\ vs /) perfectly
+        return path.join(...parts);
     }
 
     public async fileExists(filePath: string): Promise<boolean> {

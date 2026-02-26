@@ -55,7 +55,7 @@ describe('SyncManager', () => {
 
     // NEW: Initialize mockFileSystem
     mockFileSystem = {
-      joinPaths: vi.fn().mockImplementation((...parts: string[]) => parts.join('/')),
+      joinPathsInProjectFolder: vi.fn().mockImplementation((...parts: string[]) => parts.join('/')),
       writeFile: vi.fn().mockResolvedValue(undefined)
     };
 
@@ -227,10 +227,10 @@ describe('SyncManager', () => {
     
       // Assert      
       // 1. Verify path construction checks for the upward traversal and new file suffixes
-      expect(mockFileSystem.joinPaths).toHaveBeenCalledWith('summaries', 'Q3_Planning_Meeting_summary.txt');
-      expect(mockFileSystem.joinPaths).toHaveBeenCalledWith('transcriptions', 'Q3_Planning_Meeting_transcription.txt');
+      expect(mockFileSystem.joinPathsInProjectFolder).toHaveBeenCalledWith('summaries', 'Q3_Planning_Meeting_summary.txt');
+      expect(mockFileSystem.joinPathsInProjectFolder).toHaveBeenCalledWith('transcriptions', 'Q3_Planning_Meeting_transcription.txt');
 
-      // 2. Verify file system writes (mockFileSystem.joinPaths joins with '/' in our mock setup)
+      // 2. Verify file system writes (mockFileSystem.joinPathsInProjectFolder joins with '/' in our mock setup)
       const expectedSummaryPath = ['summaries', 'Q3_Planning_Meeting_summary.txt'].join('/');
       const expectedTranscriptPath = ['transcriptions', 'Q3_Planning_Meeting_transcription.txt'].join('/');
       

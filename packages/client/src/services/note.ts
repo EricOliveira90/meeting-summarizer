@@ -1,6 +1,6 @@
 import { NoteTemplate } from '@meeting-summarizer/shared';
 import { INote, ClientJob } from '../domain/clientJob';
-import { IFileManager, ObsidianConfig } from '../domain/clientJob'; // Assuming types from previous step
+import { IFileManager, ObsidianConfig } from '../domain'; // Assuming types from previous step
 import { noteTemplatesList } from '../templates/noteTemplates';
 
 export class NoteService implements INote {
@@ -25,7 +25,7 @@ export class NoteService implements INote {
 
         // 4. Construct the absolute path for the vault 
         // Note: In a production environment, you'd use a robust path joining method (e.g., path.join in Node)
-        const fullPath = `${this.config.vaultPath}/${this.config.notesFolder}/${fileName}`;
+        const fullPath = this.fs.joinPaths(this.config.vaultPath, this.config.notesFolder, fileName);
 
         // 5. Delegate to the injected file system abstraction
         await this.fs.writeFile(fullPath, content);

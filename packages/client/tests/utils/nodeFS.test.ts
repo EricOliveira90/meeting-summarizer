@@ -56,12 +56,23 @@ describe('NodeFileSystem', () => {
         });
     });
 
-    describe('joinPaths', () => {
+    describe('joinPathsInProjectFolder', () => {
         it('should prepend the baseDir and resolve OS-specific separators correctly', () => {
             // Note: We don't mock 'path' because it is a pure function (no I/O side effects).
             // It's better to let it run natively to ensure real OS behavior.
-            const result = fileSystem.joinPaths('users', 'avatar.png');
+            const result = fileSystem.joinPathsInProjectFolder('users', 'avatar.png');
             const expected = '\\var\\app\\data\\users\\avatar.png';
+            
+            expect(result).toBe(expected);
+        });
+    });
+
+    describe('joinPaths', () => {
+        it('should resolve OS-specific separators correctly', () => {
+            // Note: We don't mock 'path' because it is a pure function (no I/O side effects).
+            // It's better to let it run natively to ensure real OS behavior.
+            const result = fileSystem.joinPaths('users', 'avatar.png');
+            const expected = '\\users\\avatar.png';
             
             expect(result).toBe(expected);
         });
