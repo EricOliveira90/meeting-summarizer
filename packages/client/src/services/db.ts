@@ -33,14 +33,14 @@ export class LowDB implements IClientDb<ClientJob> {
     }
   }
 
-  public async addRecording(filePath: string): Promise<ClientJob> {
+  public async addRecording(filePath: string, datetime: string): Promise<ClientJob> {
     await this.ready;
     const jobId = randomUUID();
     const job: ClientJob = {
       jobId: jobId,
       filePath,
       originalFilename: path.basename(filePath),
-      createdAt: new Date().toISOString(),
+      createdAt: datetime,
       status: ClientJobStatus.WAITING_UPLOAD,
       retryCount: 0
     };

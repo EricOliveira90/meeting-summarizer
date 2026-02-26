@@ -41,7 +41,7 @@ export interface ClientJob {
 }
 
 export interface IClientDb<T> {
-  addRecording(filePath: string): Promise<T>;
+  addRecording(filePath: string, datetime: string): Promise<T>;
   cleanPhantomFiles(): Promise<number>;
   getPendingUploads(): Promise<T[]>;
   getReadyToFetch(): Promise<T[]>;
