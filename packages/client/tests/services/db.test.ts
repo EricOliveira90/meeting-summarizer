@@ -35,10 +35,11 @@ describe('Database Service', () => {
 
     it('should add a new recording with WAITING_UPLOAD status', async () => {
         // Act
-        const job = await testDb.addRecording('C:\\fake\\video.mkv');
+        const job = await testDb.addRecording('C:\\fake\\video.mkv', 'fake_datetime');
 
         // Assert
         expect(job.filePath).toBe('C:\\fake\\video.mkv');
+        expect(job.createdAt).toBe('fake_datetime');
         expect(job.status).toBe(ClientJobStatus.WAITING_UPLOAD);
 
         // Verify it actually saved to our test DB file
@@ -48,7 +49,7 @@ describe('Database Service', () => {
 
     it('should leave the job as WAITING_UPLOAD if the file exists', async () => {
         // Arrange
-        await testDb.addRecording('C:\\fake\\safe-video.mkv');
+        await testDb.addRecording('C:\\fake\\safe-video.mkv', 'fake_datetime');
 
         // Act
         await testDb.cleanPhantomFiles();
@@ -60,7 +61,7 @@ describe('Database Service', () => {
 
     it('should leave the job as FAILED if the file exists', async () => {
         // Arrange
-        await testDb.addRecording('C:\\fake\\safe-video.mkv');
+        await testDb.addRecording('C:\\fake\\safe-video.mkv', 'fake_datetime');
         const initialJobs = await testDb.getAll();
         await testDb.updateStatus(initialJobs[0].jobId, ClientJobStatus.FAILED)
 
@@ -74,7 +75,7 @@ describe('Database Service', () => {
 
     it('should mark a WAITING_UPLOAD job as DELETED if the file is missing from disk', async () => {
         // Arrange
-        await testDb.addRecording('C:\\fake\\deleted-video.mkv');
+        await testDb.addRecording('C:\\fake\\deleted-video.mkv', 'fake_datetime');
 
         // fsPromises.access rejects/throws if the file is missing
         mockFileSystem.fileExists.mockResolvedValue(false);
@@ -93,8 +94,8 @@ describe('Database Service', () => {
 
     it('should retrieve only jobs with WAITING_UPLOAD status', async () => {
         // Arrange
-        const job1 = await testDb.addRecording('C:\\fake\\video1.mkv');
-        const job2 = await testDb.addRecording('C:\\fake\\video2.mkv');
+        const job1 = await testDb.addRecording('C:\\fake\\video1.mkv', 'fake_datetime1');
+        const job2 = await testDb.addRecording('C:\\fake\\video2.mkv', 'fake_datetime2');
         await testDb.updateStatus(job2.jobId, ClientJobStatus.COMPLETED);
 
         // Act
@@ -107,8 +108,8 @@ describe('Database Service', () => {
 
     it('should retrieve only jobs with READY status', async () => {
         // Arrange
-        const job1 = await testDb.addRecording('C:\\fake\\video1.mkv');
-        const job2 = await testDb.addRecording('C:\\fake\\video2.mkv');
+        const job1 = await testDb.addRecording('C:\\fake\\video1.mkv', 'fake_datetime1');
+        const job2 = await testDb.addRecording('C:\\fake\\video2.mkv', 'fake_datetime2');
         await testDb.updateStatus(job1.jobId, ClientJobStatus.READY);
 
         // Act
@@ -121,15 +122,8 @@ describe('Database Service', () => {
 
     it('should retrieve all jobs sorted by newest first (descending order)', async () => {
         // Arrange
-        vi.useFakeTimers();
-
-        vi.setSystemTime(new Date('2026-01-01T10:00:00Z'));
-        const olderJob = await testDb.addRecording('C:\\fake\\old.mkv');
-
-        vi.setSystemTime(new Date('2026-01-01T11:00:00Z'));
-        const newerJob = await testDb.addRecording('C:\\fake\\new.mkv');
-
-        vi.useRealTimers();
+        const olderJob = await testDb.addRecording('C:\\fake\\old.mkv', '2026-01-01T10:00:00Z');
+        const newerJob = await testDb.addRecording('C:\\fake\\new.mkv', '2026-01-01T11:00:00Z');
 
         // Act
         const allJobs = await testDb.getAll();
@@ -143,8 +137,8 @@ describe('Database Service', () => {
     it('should find a job by its exact file path', async () => {
         // Arrange
         const targetPath = 'C:\\fake\\target.mkv';
-        await testDb.addRecording('C:\\fake\\other.mkv');
-        const expectedJob = await testDb.addRecording(targetPath);
+        await testDb.addRecording('C:\\fake\\other.mkv', 'fake_datetime');
+        const expectedJob = await testDb.addRecording(targetPath, 'fake_datetime');
 
         // Act
         const foundJob = await testDb.getJobByPath(targetPath);
@@ -158,7 +152,7 @@ describe('Database Service', () => {
 
     it('should update a specific job status', async () => {
         // Arrange
-        const job = await testDb.addRecording('C:\\fake\\video.mkv');
+        const job = await testDb.addRecording('C:\\fake\\video.mkv', 'fake_datetime');
 
         // Act
         await testDb.updateStatus(job.jobId, ClientJobStatus.PROCESSING);
@@ -170,7 +164,7 @@ describe('Database Service', () => {
 
     it('should mark a job as COMPLETED', async () => {
         // Arrange
-        const job = await testDb.addRecording('C:\\fake\\video.mkv');
+        const job = await testDb.addRecording('C:\\fake\\video.mkv', 'fake_datetime');
 
         // Act
         await testDb.markCompleted(job.jobId);
@@ -184,7 +178,7 @@ describe('Database Service', () => {
 
     it('should increment retryCount and set status to FAILED on initial errors', async () => {
         // Arrange
-        const job = await testDb.addRecording('C:\\fake\\video.mkv');
+        const job = await testDb.addRecording('C:\\fake\\video.mkv', 'fake_datetime');
         const errorMessage = 'Network timeout during upload';
 
         // Act
@@ -199,7 +193,7 @@ describe('Database Service', () => {
 
     it('should set status to ABANDONED after 4 retries', async () => {
         // Arrange
-        const job = await testDb.addRecording('C:\\fake\\video.mkv');
+        const job = await testDb.addRecording('C:\\fake\\video.mkv', 'fake_datetime');
 
         // Act - Simulate failing 4 times
         await testDb.setError(job.jobId, 'Error 1');
@@ -216,7 +210,7 @@ describe('Database Service', () => {
 
     it('should reset an ABANDONED job back to WAITING_UPLOAD with 0 retries', async () => {
         // Arrange
-        const job = await testDb.addRecording('C:\\fake\\video.mkv');
+        const job = await testDb.addRecording('C:\\fake\\video.mkv', 'fake_datetime');
 
         // Force it into an ABANDONED state
         await testDb.setError(job.jobId, 'Error 1');
@@ -236,7 +230,7 @@ describe('Database Service', () => {
 
     it('should immediately mark a job as ABANDONED if the error is fatal (e.g., 401 Auth Error)', async () => {
         // Arrange
-        const job = await testDb.addRecording('C:\\fake\\video.mkv');
+        const job = await testDb.addRecording('C:\\fake\\video.mkv', 'fake_datetime');
         const errorMessage = '401 Unauthorized: Invalid API Key';
 
         // Act - Pass true for the isFatal parameter
@@ -252,7 +246,7 @@ describe('Database Service', () => {
 
     it('should still allow an ABANDONED fatal job to be manually reset by the user', async () => {
         // Arrange
-        const job = await testDb.addRecording('C:\\fake\\video.mkv');
+        const job = await testDb.addRecording('C:\\fake\\video.mkv', 'fake_datetime');
         await testDb.setError(job.jobId, '401 Unauthorized', true); // Fatal error
 
         // Act - User fixes their API key in settings and clicks "Retry"
