@@ -1,15 +1,9 @@
+import { NoteTemplate } from '@meeting-summarizer/shared';
 import { INote, ClientJob } from '../domain/clientJob';
-import { AIPromptTemplate } from '@meeting-summarizer/shared';
 import { IFileManager, ObsidianConfig } from '../domain/clientJob'; // Assuming types from previous step
+import { noteTemplatesList } from '../templates/noteTemplates';
 
 export class NoteService implements INote {
-    // Basic template map to fulfill the test's string-matching expectations
-    private readonly templates: Record<AIPromptTemplate, string> = {
-        [AIPromptTemplate.MEETING]: "# Meeting Notes\n\n## Summary\n{{SUMMARY}}\n\n## Transcript\n{{TRANSCRIPT}}",
-        [AIPromptTemplate.TRAINING]: "# Training Notes\n\n## Summary\n{{SUMMARY}}\n\n## Transcript\n{{TRANSCRIPT}}",
-        [AIPromptTemplate.SUMMARY]: "# Brief Summary\n\n{{SUMMARY}}"
-    };
-
     constructor(
         private readonly fs: IFileManager,
         private readonly config: ObsidianConfig
@@ -17,12 +11,13 @@ export class NoteService implements INote {
 
     public async saveNote(job: ClientJob, summary: string, transcript?: string): Promise<void> {
         // 1. Select the appropriate template, defaulting to MEETING if missing
-        const templateType = job.options?.template ?? AIPromptTemplate.MEETING;
-        let content = this.templates[templateType] || this.templates[AIPromptTemplate.MEETING];
+        const templateType = job.noteTemplate ?? NoteTemplate.STD_MEETING;
+        let content = noteTemplatesList[templateType] || noteTemplatesList[NoteTemplate.STD_MEETING];
 
         // 2. Inject the payloads into the placeholders
         content = content.replace('{{SUMMARY}}', summary);
-        content = content.replace('{{TRANSCRIPT}}', transcript ?? '*Transcript not requested.*');
+        content = content.replace('{{DATE}}', job.createdAt.split('T')[0]);
+        content = content.replace('{{TRANSCRIPT}}', transcript ?? '');
 
         // 3. Strip the original media extension and append .md
         const baseName = job.originalFilename.replace(/\.[^/.]+$/, "");

@@ -1,4 +1,4 @@
-import { UploadOptions, UploadResponse, Job } from "@meeting-summarizer/shared";
+import { UploadOptions, UploadResponse, Job, NoteTemplate } from "@meeting-summarizer/shared";
 
 /**
  * Contract for handling local file discovery and database ingestion.
@@ -37,7 +37,8 @@ export interface ClientJob {
   retryCount: number;
   createdAt: string;
   error?: string;
-  options?: UploadOptions
+  options?: UploadOptions;
+  noteTemplate?: NoteTemplate
 }
 
 export interface IClientDb<T> {

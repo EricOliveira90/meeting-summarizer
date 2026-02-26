@@ -19,6 +19,13 @@ export enum AIPromptTemplate {
   SUMMARY = 'summary'    // Brief overview, TL;DR
 }
 
+export enum NoteTemplate {
+  STD_MEETING = 'Internal Meeting',   // Standard minutes, action items
+  SELLER_MEETING = 'Seller Meeting',
+  TRAINING = 'Training', // Educational summary, key concepts, Q&A
+  SUMMARY = 'Simple Summary'    // Brief overview, TL;DR
+}
+
 /**
  * Interface representing the AI processing configuration for a job.
  */
