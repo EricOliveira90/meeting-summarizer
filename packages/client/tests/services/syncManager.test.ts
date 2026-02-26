@@ -225,17 +225,14 @@ describe('SyncManager', () => {
       // Act
       await syncManager['fetchResults']();
     
-      // Assert
-      // 1. Calculate the __dirname of the source file by replacing 'tests' with 'src'
-      const srcDirName = __dirname.replace('tests', 'src');
-      
-      // 2. Verify path construction checks for the upward traversal and new file suffixes
-      expect(mockFileSystem.joinPaths).toHaveBeenCalledWith(srcDirName, '..', '..', 'summaries', 'Q3_Planning_Meeting_summary.txt');
-      expect(mockFileSystem.joinPaths).toHaveBeenCalledWith(srcDirName, '..', '..', 'transcriptions', 'Q3_Planning_Meeting_transcription.txt');
+      // Assert      
+      // 1. Verify path construction checks for the upward traversal and new file suffixes
+      expect(mockFileSystem.joinPaths).toHaveBeenCalledWith('summaries', 'Q3_Planning_Meeting_summary.txt');
+      expect(mockFileSystem.joinPaths).toHaveBeenCalledWith('transcriptions', 'Q3_Planning_Meeting_transcription.txt');
 
       // 2. Verify file system writes (mockFileSystem.joinPaths joins with '/' in our mock setup)
-      const expectedSummaryPath = [srcDirName, '..', '..', 'summaries', 'Q3_Planning_Meeting_summary.txt'].join('/');
-      const expectedTranscriptPath = [srcDirName, '..', '..', 'transcriptions', 'Q3_Planning_Meeting_transcription.txt'].join('/');
+      const expectedSummaryPath = ['summaries', 'Q3_Planning_Meeting_summary.txt'].join('/');
+      const expectedTranscriptPath = ['transcriptions', 'Q3_Planning_Meeting_transcription.txt'].join('/');
       
       expect(mockFileSystem.writeFile).toHaveBeenCalledWith(expectedSummaryPath, 'Summary content');
       expect(mockFileSystem.writeFile).toHaveBeenCalledWith(expectedTranscriptPath, 'Transcript content');
