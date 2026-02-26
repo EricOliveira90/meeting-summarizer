@@ -116,14 +116,6 @@ export interface IFileManager {
   readFile(filePath: string): Promise<string>;
   writeFile(filePath: string, content: string): Promise<void>;
   fileExists(filePath: string): Promise<boolean>;
+  joinPathsInProjectFolder(...parts: string[]): string;
   joinPaths(...parts: string[]): string;
-}
-
-export interface ObsidianConfig {
-  vaultPath: string;
-  notesFolder: string;
-  // The pre-established list of available Obsidian templates (Name -> Path)
-  availableTemplates: Record<string, string>; 
-  // The specific Obsidian template the user currently wants to use
-  activeTemplateName: string; 
 }

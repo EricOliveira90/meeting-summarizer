@@ -1,32 +1,15 @@
 import Conf from 'conf';
 import dotenv from 'dotenv';
 import path from 'path';
+import { ObsConfig, ServerConfig, PathConfig, AudioConfig, ObsidianConfig } from '../domain/configs';
+import { noteTemplatesList } from '../templates/noteTemplates';
+import { NoteTemplate } from '@meeting-summarizer/shared';
 
 // Load .env from the package root
 dotenv.config({ path: path.join(__dirname, '../../.env') });
 
 // 1. Define the specific shapes of the config sections
-interface ObsConfig {
-  ip: string;
-  port: number;
-  password?: string;
-}
 
-interface ServerConfig {
-  ip: string;
-  port: number;
-  apiKey: string;
-}
-
-interface PathConfig {
-  output: string;
-  obsidianVault?: string;
-}
-
-interface AudioConfig {
-  micId?: string;
-  systemId?: string;
-}
 
 // 2. Main Config Interface
 export interface AppConfig {
@@ -34,6 +17,7 @@ export interface AppConfig {
   server: ServerConfig;
   paths: PathConfig;
   audio: AudioConfig;
+  obsidian: ObsidianConfig
 }
 
 // 3. Defaults
@@ -51,7 +35,15 @@ const defaults: AppConfig = {
   paths: {
     output: path.join(process.cwd(), 'recordings'),
   },
-  audio: {}
+  audio: {},
+  obsidian: {
+    vaultPath: "C:\\Users\\ueolivei\\OneDrive - amazon.com\\5. Amazon PKM",
+    notesFolder: "40 Meetings",
+    // The pre-established list of available Obsidian templates (Name -> Path)
+    availableTemplates: noteTemplatesList, 
+    // The specific Obsidian template the user currently wants to use
+    activeTemplateName: NoteTemplate.STD_MEETING 
+  }
 };
 
 class ConfigService {
