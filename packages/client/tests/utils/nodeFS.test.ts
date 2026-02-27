@@ -72,7 +72,7 @@ describe('NodeFileSystem', () => {
             // Note: We don't mock 'path' because it is a pure function (no I/O side effects).
             // It's better to let it run natively to ensure real OS behavior.
             const result = fileSystem.joinPaths('users', 'avatar.png');
-            const expected = '\\users\\avatar.png';
+            const expected = 'users\\avatar.png';
             
             expect(result).toBe(expected);
         });

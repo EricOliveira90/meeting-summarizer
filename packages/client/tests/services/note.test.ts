@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NoteService } from '../../src/services/note';
-import { ClientJob, ClientJobStatus } from '../../src/domain/clientJob';
-import { AIPromptTemplate, NoteTemplate, TranscriptionLanguage } from '@meeting-summarizer/shared';
+import { ClientJob, ClientJobStatus, NoteTemplate } from '../../src/domain';
+import { AIPromptTemplate, TranscriptionLanguage } from '@meeting-summarizer/shared';
 
 describe('NoteService', () => {
   let mockFs: any;
@@ -9,20 +9,22 @@ describe('NoteService', () => {
   let note: NoteService;
 
   beforeEach(() => {
-    mockFs = { writeFile: vi.fn() };
+    mockFs = { writeFile: vi.fn(), joinPaths: vi.fn() };
     note = new NoteService(mockFs, config);
   });
 
   it('should format the meeting template and write the file to the Obsidian vault', async () => {
     // 1. Arrange
 
+    mockFs.joinPaths.mockReturnValueOnce('/Users/test/Documents/Obsidian/Meetings/Q1_Planning_Meeting.md')
+    
     const mockJob: ClientJob = {
-      jobId: '123',
+      id: '123',
       filePath: '/raw/audio.mp3',
       originalFilename: 'Q1_Planning_Meeting.mp3',
-      status: ClientJobStatus.READY,
+      clientStatus: ClientJobStatus.READY,
       retryCount: 0,
-      createdAt: '2026-02-23T10:00:00Z',
+      recordedAt: '2026-02-23T10:00:00Z',
       options: {
         language: TranscriptionLanguage.PORTUGUESE,
         template: AIPromptTemplate.MEETING

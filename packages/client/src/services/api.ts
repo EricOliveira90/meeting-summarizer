@@ -9,7 +9,7 @@ import {
   UploadResponse,
   ErrorResponse
 } from '@meeting-summarizer/shared';
-import { HealthStatus, IApiService, SyncError } from '../domain/clientJob';
+import { HealthStatus, IApiService, SyncError } from '../domain';
 
 
 export class ApiService implements IApiService {

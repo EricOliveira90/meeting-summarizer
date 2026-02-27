@@ -40,7 +40,7 @@ describe('IngestionService', () => {
 
         mockDb = {
             getJobByPath: vi.fn(),
-            addRecording: vi.fn().mockResolvedValue({ jobId: 'job-123' }),
+            addRecording: vi.fn().mockResolvedValue({ id: 'job-123' }),
             updateOptions: vi.fn()
         };
 

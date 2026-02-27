@@ -1,4 +1,4 @@
-import { NoteTemplate } from "@meeting-summarizer/shared";
+import { NoteTemplate } from "./models";
 
 export interface ObsConfig {
   ip: string;
@@ -25,8 +25,14 @@ export interface AudioConfig {
 export interface ObsidianConfig {
   vaultPath: string;
   notesFolder: string;
-  // The pre-established list of available Obsidian templates (Name -> Path)
-  availableTemplates: Record<NoteTemplate, string>; 
-  // The specific Obsidian template the user currently wants to use
-  activeTemplateName: string; 
+  availableTemplates: Record<NoteTemplate, string>;
+  activeTemplateName: string;
+}
+
+export interface AppConfig {
+  obs: ObsConfig;
+  server: ServerConfig;
+  paths: PathConfig;
+  audio: AudioConfig;
+  obsidian: ObsidianConfig
 }

@@ -1,6 +1,6 @@
 import fsPromises from 'fs/promises';
 import * as path from 'path';
-import { IFileManager } from '../domain/clientJob';
+import { IFileManager } from '../domain/ports';
 
 export class NodeFileSystem implements IFileManager {
     constructor(private readonly baseDir: string) {}

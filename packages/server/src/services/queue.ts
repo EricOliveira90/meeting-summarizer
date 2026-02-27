@@ -1,13 +1,13 @@
 import Queue from 'better-queue';
 import path from 'path';
 import fs from 'fs';
-import { JobRecord } from '@meeting-summarizer/shared'
 import {
   audioExtractionService,
   getDb,
   transcriptionService,
   summaryService
 } from '.';
+import { JobRecord } from '../domain/models';
 
 interface QueueInput {
   jobId: string;
@@ -17,33 +17,31 @@ interface QueueInput {
 const processMeeting = async (input: QueueInput, cb: (err?: any, result?: any) => void) => {
   const { jobId, filePath } = input;
   const db = await getDb();
-  
+
   const jobRecord = db.data.jobs.find(j => j.id === jobId);
-  
+
   // Read Options from DB
-  const language = jobRecord?.language || 'auto';
-  const template = jobRecord?.template || 'meeting';
-  const minSpeakers = jobRecord?.minSpeakers;
-  const maxSpeakers = jobRecord?.maxSpeakers;
+  const language = jobRecord?.options?.language || 'auto';
+  const template = jobRecord?.options?.template || 'meeting';
+  const minSpeakers = jobRecord?.options?.minSpeakers;
+  const maxSpeakers = jobRecord?.options?.maxSpeakers;
 
   try {
     console.log(`\n⚙️  [Job ${jobId}] Processing started...`);
 
     // --- STEP 1: EXTRACT AUDIO ---
-    await updateJobStatus(jobId, 'EXTRACTING');
-    
-    const audioOutputDir = path.join(process.cwd(), 'audio_cache'); 
+    await updateJobStatus(jobId, 'PROCESSING');
+
+    const audioOutputDir = path.join(process.cwd(), 'audio_cache');
     if (!fs.existsSync(audioOutputDir)) fs.mkdirSync(audioOutputDir, { recursive: true });
 
     const extractionResult = await audioExtractionService.convertToWav(filePath, audioOutputDir);
     await updateJobData(jobId, { audioPath: extractionResult.audioPath });
 
     // Cleanup Source
-    try { await fs.promises.unlink(filePath); } catch (err) {}
+    try { await fs.promises.unlink(filePath); } catch (err) { }
 
     // --- STEP 2: TRANSCRIBE ---
-    await updateJobStatus(jobId, 'TRANSCRIBING');
-    
     // Pass ALL options to the service
     const transResult = await transcriptionService.transcribe(extractionResult.audioPath, {
       language,
@@ -54,16 +52,14 @@ const processMeeting = async (input: QueueInput, cb: (err?: any, result?: any) =
     await updateJobData(jobId, { transcriptPath: transResult.outputFilePath });
 
     // --- STEP 3: SUMMARIZE ---
-    await updateJobStatus(jobId, 'SUMMARIZING');
-    
     const sumResult = await summaryService.summarize(transResult.text, jobId, template);
     await updateJobData(jobId, { summaryPath: sumResult.summaryPath });
 
     // --- STEP 4: COMPLETE ---
     await updateJobStatus(jobId, 'COMPLETED');
-    
-    cb(null, { 
-      success: true, 
+
+    cb(null, {
+      success: true,
       audio: extractionResult.audioPath,
       transcriptPath: transResult.outputFilePath,
       summaryPath: sumResult.summaryPath
@@ -71,20 +67,20 @@ const processMeeting = async (input: QueueInput, cb: (err?: any, result?: any) =
 
   } catch (error: any) {
     console.error(`❌ [Job ${jobId}] Failed:`, error.message);
-    await updateJobData(jobId, { status: 'FAILED', error: error.message });
+    await updateJobData(jobId, { serverStatus: 'FAILED', error: error.message });
     cb(error);
   }
 };
 
 export const meetingQueue = new Queue<QueueInput, any>(processMeeting, {
-  concurrent: 1, 
-  afterProcessDelay: 1000, 
+  concurrent: 1,
+  afterProcessDelay: 1000,
 });
 
-async function updateJobStatus(id: string, status: JobRecord['status']) {
+async function updateJobStatus(id: string, status: JobRecord['serverStatus']) {
   const db = await getDb();
   const job = db.data.jobs.find(j => j.id === id);
-  if (job) { job.status = status; await db.write(); }
+  if (job) { job.serverStatus = status; await db.write(); }
 }
 
 async function updateJobData(id: string, data: Partial<JobRecord>) {

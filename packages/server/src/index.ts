@@ -5,16 +5,17 @@ import multipart from '@fastify/multipart';
 import path from 'path';
 import fs from 'fs';
 import { randomUUID } from 'crypto';
-import { 
-  JobRecord,
+import {
   Job,
-  TranscriptionLanguage, 
+  TranscriptionLanguage,
   AIPromptTemplate,
   UploadResponse,
-  ErrorResponse
+  ErrorResponse,
+  JobResponse
 } from '@meeting-summarizer/shared';
 import { meetingQueue, getDb } from './services';
 import { parseEnum } from './utils/helper';
+import { JobRecord } from './domain/models';
 
 const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
 const API_KEY = process.env.API_KEY;
@@ -43,16 +44,16 @@ export function buildServer(): FastifyInstance {
   if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
   server.get('/', async () => ({ status: 'online', service: 'Meeting Summarizer Server' }));
-    
+
   /**
    * ROUTE: POST /upload
    */
   server.post<{ Reply: UploadResponse | ErrorResponse }>('/upload', async (req, reply) => {
     const parts = req.parts();
-    
+
     let uploadFilename = '';
     let savePath = '';
-    const fields: Partial<Record<keyof JobRecord, any>> = {};
+    const fields: Partial<Record<keyof Job, any>> = {};
 
     for await (const part of parts) {
       if (part.type === 'file') {
@@ -67,10 +68,10 @@ export function buildServer(): FastifyInstance {
           pump.on('finish', resolve);
           pump.on('error', reject);
         });
-        
+
         fields.id = fileId;
       } else {
-        fields[part.fieldname as keyof JobRecord] = part.value;
+        fields[part.fieldname as keyof Job] = part.value;
       }
     }
 
@@ -78,19 +79,23 @@ export function buildServer(): FastifyInstance {
       return reply.status(400).send({ error: 'No file uploaded' });
     }
 
-    const minSpeakers = fields.minSpeakers ? parseInt(fields.minSpeakers) : undefined;
-    const maxSpeakers = fields.maxSpeakers ? parseInt(fields.maxSpeakers) : undefined;
+    const minSpeakers = fields.options.minSpeakers ? parseInt(fields.options.minSpeakers) : undefined;
+    const maxSpeakers = fields.options.maxSpeakers ? parseInt(fields.options.maxSpeakers) : undefined;
 
     const newJob: JobRecord = {
       id: fields.id,
       originalFilename: uploadFilename,
       filePath: savePath,
-      uploadDate: new Date().toISOString(),
-      status: 'PENDING',
-      language: parseEnum(fields.language, TranscriptionLanguage, TranscriptionLanguage.AUTO),
-      template: parseEnum(fields.template, AIPromptTemplate, AIPromptTemplate.MEETING),
-      minSpeakers: isNaN(minSpeakers!) ? undefined : minSpeakers,
-      maxSpeakers: isNaN(maxSpeakers!) ? undefined : maxSpeakers
+      recordedAt: new Date().toISOString(),
+      serverStatus: 'PENDING',
+      options:
+      {
+        language: parseEnum(fields.options.language, TranscriptionLanguage, TranscriptionLanguage.AUTO),
+        template: parseEnum(fields.options.template, AIPromptTemplate, AIPromptTemplate.MEETING),
+        minSpeakers: isNaN(minSpeakers!) ? undefined : minSpeakers,
+        maxSpeakers: isNaN(maxSpeakers!) ? undefined : maxSpeakers
+      }
+
     };
 
     const db = await getDb();
@@ -99,7 +104,7 @@ export function buildServer(): FastifyInstance {
 
     meetingQueue.push({ jobId: newJob.id, filePath: savePath });
 
-    console.log(`📥 Upload: ${uploadFilename} | [${newJob.language}, ${newJob.template}]`);
+    console.log(`📥 Upload: ${uploadFilename} | [${newJob.options?.language || 'Lang N/A'}, ${newJob.options?.template || 'Template N/A'}]`);
 
     return { success: true, jobId: newJob.id, message: 'File queued.' };
   });
@@ -117,8 +122,8 @@ export function buildServer(): FastifyInstance {
     // Transform JobRecord -> Job
     // 1. Remove internal paths
     const { filePath, audioPath, transcriptPath, summaryPath, ...safeJob } = job;
-    
-    const responsePayload: Job = { ...safeJob };
+
+    const responsePayload: JobResponse = { ...safeJob };
 
     // 2. Hydrate Text Content
     if (transcriptPath && fs.existsSync(transcriptPath)) {
@@ -147,9 +152,9 @@ export function buildServer(): FastifyInstance {
 if (require.main === module) {
   const PORT = parseInt(process.env.PORT || '3000');
   const HOST = '127.0.0.1';
-  
+
   const app = buildServer();
-  
+
   if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
   app.listen({ port: PORT, host: HOST }, (err) => {

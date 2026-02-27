@@ -1,7 +1,7 @@
 import inquirer from 'inquirer';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SyncManager } from '../../src/services/syncManager';
-import { ClientJobStatus, SyncError } from '../../src/domain/clientJob';
+import { ClientJobStatus, SyncError } from '../../src/domain';
 import { TranscriptionLanguage, AIPromptTemplate } from '@meeting-summarizer/shared';
 
 // 1. Mock inquirer purely, without referencing external variables (avoids hoisting ReferenceError)
@@ -91,7 +91,7 @@ describe('SyncManager', () => {
     
     it('should correctly handle a TRANSIENT network error (e.g. Tunnel Down)', async () => {
       // Arrange
-      const fakeJob = { jobId: '123', status: ClientJobStatus.WAITING_UPLOAD, originalFilename: 'test.mkv', language: 'en', template: 'meeting' } as any;
+      const fakeJob = { id: '123', clientStatus: ClientJobStatus.WAITING_UPLOAD, originalFilename: 'test.mkv', options: {language: 'en', template: 'meeting'} } as any;
       mockApi.uploadMeeting.mockRejectedValue(new SyncError('ECONNRESET', true));
 
       // Act
@@ -104,7 +104,7 @@ describe('SyncManager', () => {
 
     it('should correctly handle a FATAL auth error (e.g. Bad API Key)', async () => {
       // Arrange
-      const fakeJob = { jobId: '123', status: ClientJobStatus.WAITING_UPLOAD, originalFilename: 'test.mkv', language: 'en', template: 'meeting' } as any;
+      const fakeJob = { id: '123', clientStatus: ClientJobStatus.WAITING_UPLOAD, originalFilename: 'test.mkv', options: {language: 'en', template: 'meeting'} } as any;
       mockApi.uploadMeeting.mockRejectedValue(new SyncError('Unauthorized', false, 401));
 
       // Act
@@ -116,7 +116,7 @@ describe('SyncManager', () => {
 
     it('should prompt for configuration if missing and save it to the DB', async () => {
       // Arrange
-      const fakeJob = { jobId: '124', status: ClientJobStatus.WAITING_UPLOAD, originalFilename: 'test.mkv' } as any;
+      const fakeJob = { id: '124', clientStatus: ClientJobStatus.WAITING_UPLOAD, originalFilename: 'test.mkv' } as any;
       mockApi.uploadMeeting.mockResolvedValue({ success: true });
 
       // Act
@@ -138,10 +138,10 @@ describe('SyncManager', () => {
   describe('pushPending() - Batch Processor Logic', () => {
     it('should filter targets correctly and delegate to pushJob', async () => {
       // Arrange
-      const waitingJob = { jobId: '1', status: ClientJobStatus.WAITING_UPLOAD };
-      const retryJob = { jobId: '2', status: ClientJobStatus.FAILED, retryCount: 1 };
-      const maxRetryJob = { jobId: '3', status: ClientJobStatus.FAILED, retryCount: 3 }; // Should skip (Max Retries)
-      const readyJob = { jobId: '4', status: ClientJobStatus.READY }; // Should skip (Wrong Status)
+      const waitingJob = { id: '1', clientStatus: ClientJobStatus.WAITING_UPLOAD };
+      const retryJob = { id: '2', clientStatus: ClientJobStatus.FAILED, retryCount: 1 };
+      const maxRetryJob = { id: '3', clientStatus: ClientJobStatus.FAILED, retryCount: 3 }; // Should skip (Max Retries)
+      const readyJob = { id: '4', clientStatus: ClientJobStatus.READY }; // Should skip (Wrong Status)
       
       mockDb.getAll.mockResolvedValue([waitingJob, retryJob, maxRetryJob, readyJob]);
       const pushSpy = vi.spyOn(syncManager, 'pushJob').mockResolvedValue(undefined);
@@ -161,9 +161,9 @@ describe('SyncManager', () => {
     
     it('should mark job as FAILED (fatal) if the server processing fails', async () => {
       // Arrange
-      const fakeJob = { jobId: '456', status: ClientJobStatus.PROCESSING };
+      const fakeJob = { id: '456', clientStatus: ClientJobStatus.PROCESSING };
       mockDb.getAll.mockResolvedValue([fakeJob]);
-      mockApi.getJobStatus.mockResolvedValue({ status: 'FAILED', error: 'Whisper CUDA out of memory' });
+      mockApi.getJobStatus.mockResolvedValue({ serverStatus: 'FAILED', error: 'Whisper CUDA out of memory' });
 
       // Act
       await syncManager['updateActiveStates']();
@@ -174,7 +174,7 @@ describe('SyncManager', () => {
 
     it('should quietly ignore errors if the server is simply unreachable (Tunnel Down)', async () => {
       // Arrange
-      const fakeJob = { jobId: '456', status: ClientJobStatus.PROCESSING };
+      const fakeJob = { id: '456', clientStatus: ClientJobStatus.PROCESSING };
       mockDb.getAll.mockResolvedValue([fakeJob]);
       mockApi.getJobStatus.mockRejectedValue(new Error('Network timeout'));
 
@@ -192,10 +192,10 @@ describe('SyncManager', () => {
     it('should save notes and mark as completed when payloads exist', async () => {
       // Arrange
       // FIXED: Added originalFilename to prevent regex crash
-      const fakeJob = { jobId: '789', status: ClientJobStatus.READY, originalFilename: 'meeting.mkv' };
+      const fakeJob = { id: '789', clientStatus: ClientJobStatus.READY, originalFilename: 'meeting.mkv' };
       mockDb.getReadyToFetch.mockResolvedValue([fakeJob]);
       mockApi.getJobStatus.mockResolvedValue({ 
-        jobId: '789', 
+        id: '789', 
         summaryText: '# Meeting Summary', 
         transcriptText: 'Hello world' 
       });
@@ -211,13 +211,13 @@ describe('SyncManager', () => {
     it('should save the transcript and summary to local .txt files to keep the DB lean', async () => {
       // Arrange
       const fakeJob = { 
-        jobId: '999', 
-        status: ClientJobStatus.READY, 
+        id: '999', 
+        clientStatus: ClientJobStatus.READY, 
         originalFilename: 'Q3_Planning_Meeting.mp3' 
       };
       mockDb.getReadyToFetch.mockResolvedValue([fakeJob]);
       mockApi.getJobStatus.mockResolvedValue({ 
-        jobId: '999', 
+        id: '999', 
         summaryText: 'Summary content', 
         transcriptText: 'Transcript content' 
       });

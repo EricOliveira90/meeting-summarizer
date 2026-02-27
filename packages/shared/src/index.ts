@@ -1,10 +1,4 @@
-export interface MeetingMetadata {
-  title: string;
-  date: string; // ISO format
-  originalFileName: string;
-}
-
-export type JobState = 'PENDING' | 'EXTRACTING' | 'TRANSCRIBING' | 'SUMMARIZING' | 'COMPLETED' | 'FAILED';
+export type JobState = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
 
 export enum TranscriptionLanguage {
   AUTO = 'auto',
@@ -19,15 +13,8 @@ export enum AIPromptTemplate {
   SUMMARY = 'summary'    // Brief overview, TL;DR
 }
 
-export enum NoteTemplate {
-  STD_MEETING = 'Internal Meeting',   // Standard minutes, action items
-  SELLER_MEETING = 'Seller Meeting',
-  TRAINING = 'Training', // Educational summary, key concepts, Q&A
-  SUMMARY = 'Simple Summary'    // Brief overview, TL;DR
-}
-
 /**
- * Interface representing the AI processing configuration for a job.
+ * API Contracts
  */
 export interface UploadOptions {
   language: TranscriptionLanguage;
@@ -36,37 +23,6 @@ export interface UploadOptions {
   maxSpeakers?: number;
 }
 
-// The raw record stored in the Database (paths, not content)
-export interface JobRecord {
-  id: string;
-  status: JobState;
-  originalFilename: string;
-  filePath: string; // Path to source audio/video
-  uploadDate: string;
-  
-  // Processing Options
-  language: TranscriptionLanguage;
-  template: AIPromptTemplate;
-  minSpeakers?: number;
-  maxSpeakers?: number;
-
-  // Output Paths (Server-side only references)
-  audioPath?: string;
-  transcriptPath?: string;
-  summaryPath?: string;
-  error?: string;
-}
-
-// The Data Transfer Object sent to the Client (Content, not paths)
-export interface Job extends Omit<JobRecord, 'filePath' | 'audioPath' | 'transcriptPath' | 'summaryPath'> {
-  // We explicitly exclude server-side paths from the API response for security/cleanliness
-  transcriptText?: string;
-  summaryText?: string;
-  transcriptError?: string;
-  summaryError?: string;
-}
-
-// Standardized API Responses
 export interface UploadResponse {
   success: boolean;
   jobId: string;
@@ -75,4 +31,20 @@ export interface UploadResponse {
 
 export interface ErrorResponse {
   error: string;
+}
+
+export interface Job {
+  id: string;
+  originalFilename: string;
+  serverStatus: JobState;
+  recordedAt: string;
+  options?: UploadOptions;
+  error?: string;
+}
+
+export interface JobResponse extends Job {
+  transcriptText?: string;
+  summaryText?: string;
+  transcriptError?: string;
+  summaryError?: string;
 }

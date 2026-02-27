@@ -4,7 +4,8 @@ import fs from 'fs';
 import { pipeline } from 'stream/promises';
 import { getDb } from '../services/db'; // Ensure this points to your LowDB instance getter
 import { meetingQueue } from '../services/queue'; // Ensure this points to your better-queue instance
-import { JobRecord, TranscriptionLanguage, AIPromptTemplate } from '@meeting-summarizer/shared'; // Adjust path to your shared types
+import { TranscriptionLanguage, AIPromptTemplate } from '@meeting-summarizer/shared'; // Adjust path to your shared types
+import { JobRecord } from '../domain/models';
 
 const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
 
@@ -16,7 +17,7 @@ const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
  * 3. Database is updated idempotently.
  */
 export async function uploadRoutes(server: FastifyInstance) {
-  
+
   server.post('/upload', async (req, reply) => {
     // 1. HEADER VALIDATION (Metadata First)
     // We strictly require the Client to generate the UUID. This makes the Client the "Source of Truth".
@@ -33,7 +34,7 @@ export async function uploadRoutes(server: FastifyInstance) {
     // 2. FILE HANDLING
     // consume the multipart data. We expect exactly one file field.
     const data = await req.file();
-    
+
     if (!data) {
       return reply.status(400).send({ error: 'No file uploaded' });
     }
@@ -53,55 +54,57 @@ export async function uploadRoutes(server: FastifyInstance) {
         data.file,
         fs.createWriteStream(savePath)
       );
-      
+
       console.log(`✅ File Written: ${savePath}`);
 
     } catch (err) {
       console.error('❌ Upload Stream Failed:', err);
       // Clean up partial file if stream fails
-      try { await fs.promises.unlink(savePath); } catch {} 
+      try { await fs.promises.unlink(savePath); } catch { }
       return reply.status(500).send({ error: 'Stream processing failed' });
     }
 
     // 4. DATABASE PERSISTENCE
     // We read the DB *after* the file is safe on disk.
     const db = await getDb();
-    
+
     const newJob: JobRecord = {
       id: jobId,
       originalFilename: data.filename,
       filePath: savePath,
-      uploadDate: new Date().toISOString(),
-      status: 'PENDING', // Ready for processing
-      language,
-      template,
-      minSpeakers,
-      maxSpeakers
+      recordedAt: new Date().toISOString(),
+      serverStatus: 'PENDING', // Ready for processing
+      options: {
+        language,
+        template,
+        minSpeakers,
+        maxSpeakers
+      }
     };
 
     // Idempotency Check: If the Client retries the upload, we update the existing record
     const existingIndex = db.data.jobs.findIndex((j: JobRecord) => j.id === jobId);
-    
+
     if (existingIndex !== -1) {
       console.log(`♻️  Updating existing job record: ${jobId}`);
       db.data.jobs[existingIndex] = { ...db.data.jobs[existingIndex], ...newJob };
     } else {
       db.data.jobs.push(newJob);
     }
-    
+
     await db.write();
 
     // 5. TRIGGER PROCESSING QUEUE
     // Push to better-queue to start FFmpeg/Whisper
-    meetingQueue.push({ 
-      jobId: jobId, 
-      filePath: savePath 
+    meetingQueue.push({
+      jobId: jobId,
+      filePath: savePath
     });
 
-    return reply.send({ 
-      success: true, 
-      id: jobId, 
-      message: 'Upload successful. Processing started.' 
+    return reply.send({
+      success: true,
+      id: jobId,
+      message: 'Upload successful. Processing started.'
     });
   });
 }

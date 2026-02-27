@@ -2,14 +2,14 @@ import { Low } from 'lowdb';
 import { JSONFile } from 'lowdb/node';
 import path from 'path';
 import { randomUUID } from 'crypto';
-import { ClientJob, ClientJobStatus, IClientDb, IFileManager } from '../domain/clientJob';
+import { IClientDb, IFileManager, ClientJob, ClientJobStatus } from '../domain';
 import { UploadOptions } from '@meeting-summarizer/shared';
 
 interface ClientSchema {
   jobs: ClientJob[];
 }
 
-export class LowDB implements IClientDb<ClientJob> {
+export class LowDB implements IClientDb {
   private fs: IFileManager
   private db: Low<ClientSchema>;
   private ready: Promise<void>;
@@ -29,7 +29,7 @@ export class LowDB implements IClientDb<ClientJob> {
       await this.db.write();
     } catch (error) {
       console.error('Failed to initialize local database:', error);
-      this.db.data = { jobs: [] }; 
+      this.db.data = { jobs: [] };
     }
   }
 
@@ -37,11 +37,11 @@ export class LowDB implements IClientDb<ClientJob> {
     await this.ready;
     const jobId = randomUUID();
     const job: ClientJob = {
-      jobId: jobId,
+      id: jobId,
       filePath,
       originalFilename: path.basename(filePath),
-      createdAt: datetime,
-      status: ClientJobStatus.WAITING_UPLOAD,
+      recordedAt: datetime,
+      clientStatus: ClientJobStatus.WAITING_UPLOAD,
       retryCount: 0
     };
 
@@ -65,11 +65,11 @@ export class LowDB implements IClientDb<ClientJob> {
     ];
 
     for (const job of this.db.data.jobs) {
-      if (vulnerableStates.includes(job.status)) {
+      if (vulnerableStates.includes(job.clientStatus)) {
         const exists = await this.fs.fileExists(job.filePath);
-        
+
         if (!exists) {
-          job.status = ClientJobStatus.DELETED;
+          job.clientStatus = ClientJobStatus.DELETED;
           job.error = 'File was deleted from the local disk.';
           cleanedCount++;
         }
@@ -86,33 +86,33 @@ export class LowDB implements IClientDb<ClientJob> {
 
   public async getPendingUploads(): Promise<ClientJob[]> {
     await this.ready;
-    return this.db.data!.jobs.filter(j => j.status === ClientJobStatus.WAITING_UPLOAD);
+    return this.db.data!.jobs.filter(j => j.clientStatus === ClientJobStatus.WAITING_UPLOAD);
   }
 
   public async getReadyToFetch(): Promise<ClientJob[]> {
     await this.ready;
-    return this.db.data.jobs.filter(j => j.status === ClientJobStatus.READY);
+    return this.db.data.jobs.filter(j => j.clientStatus === ClientJobStatus.READY);
   }
 
   public async getAll(): Promise<ClientJob[]> {
     await this.ready;
-    return [...this.db.data.jobs].sort((a, b) => 
-      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    return [...this.db.data.jobs].sort((a, b) =>
+      new Date(b.recordedAt).getTime() - new Date(a.recordedAt).getTime()
     );
   }
 
   public async updateStatus(id: string, status: ClientJobStatus): Promise<void> {
     await this.ready;
-    const job = this.db.data.jobs.find(j => j.jobId === id);
+    const job = this.db.data.jobs.find(j => j.id === id);
     if (job) {
-      job.status = status;
+      job.clientStatus = status;
       await this.db.write();
     }
   }
 
   public async updateOptions(id: string, options: UploadOptions): Promise<void> {
     await this.ready;
-    const job = this.db.data.jobs.find(j => j.jobId === id);
+    const job = this.db.data.jobs.find(j => j.id === id);
     if (job) {
       job.options = options;
       await this.db.write();
@@ -129,40 +129,40 @@ export class LowDB implements IClientDb<ClientJob> {
    */
   public async setError(id: string, errorMsg: string, isFatal: boolean = false): Promise<void> {
     await this.ready;
-    const job = this.db.data!.jobs.find(j => j.jobId === id);
-    
+    const job = this.db.data!.jobs.find(j => j.id === id);
+
     if (job) {
       job.error = errorMsg;
 
       if (isFatal) {
-        job.status = ClientJobStatus.ABANDONED;
+        job.clientStatus = ClientJobStatus.ABANDONED;
       } else {
         job.retryCount += 1;
-        
+
         if (job.retryCount >= 4) {
-          job.status = ClientJobStatus.ABANDONED;
+          job.clientStatus = ClientJobStatus.ABANDONED;
         } else {
-          job.status = ClientJobStatus.FAILED;
+          job.clientStatus = ClientJobStatus.FAILED;
         }
       }
-      
+
       await this.db.write();
     }
   }
-  
+
   /**
    * Manually resets a FAILED or ABANDONED job back to a fresh state,
    * allowing the upload worker to pick it up again.
    */
   public async resetJobForRetry(id: string): Promise<void> {
     await this.ready;
-    const job = this.db.data.jobs.find(j => j.jobId === id);
-    
+    const job = this.db.data.jobs.find(j => j.id === id);
+
     if (job) {
       job.retryCount = 0;
-      job.status = ClientJobStatus.WAITING_UPLOAD;
+      job.clientStatus = ClientJobStatus.WAITING_UPLOAD;
       job.error = undefined;
-      
+
       await this.db.write();
     }
   }

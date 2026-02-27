@@ -1,26 +1,13 @@
 import Conf from 'conf';
 import dotenv from 'dotenv';
 import path from 'path';
-import { ObsConfig, ServerConfig, PathConfig, AudioConfig, ObsidianConfig } from '../domain/configs';
+import { AppConfig, NoteTemplate } from '../domain';
 import { noteTemplatesList } from '../templates/noteTemplates';
-import { NoteTemplate } from '@meeting-summarizer/shared';
 
 // Load .env from the package root
 dotenv.config({ path: path.join(__dirname, '../../.env') });
 
-// 1. Define the specific shapes of the config sections
-
-
-// 2. Main Config Interface
-export interface AppConfig {
-  obs: ObsConfig;
-  server: ServerConfig;
-  paths: PathConfig;
-  audio: AudioConfig;
-  obsidian: ObsidianConfig
-}
-
-// 3. Defaults
+// Defaults
 const defaults: AppConfig = {
   obs: {
     ip: process.env.OBS_IP || '127.0.0.1',

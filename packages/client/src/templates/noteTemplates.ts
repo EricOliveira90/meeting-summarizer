@@ -1,4 +1,4 @@
-import { NoteTemplate } from '@meeting-summarizer/shared';
+import { NoteTemplate } from "../domain";
 
 export const noteTemplatesList: Record<NoteTemplate, string> = {
     [NoteTemplate.STD_MEETING]: `

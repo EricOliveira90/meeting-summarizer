@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { IClientDb, ClientJob, IIngestion } from '../domain/clientJob';
+import { IClientDb, IIngestion } from '../domain/ports';
 import { configService } from './config'; // Assuming configService is exported from your services index
 import { promptForMeetingTitle, promptForJobConfig } from '../ui/prompts';
 
@@ -11,7 +11,7 @@ interface NodeError extends Error {
 export class IngestionService implements IIngestion {
     private readonly SUPPORTED_EXTENSIONS = ['.mkv', '.mp3', '.opus', '.m4a', '.wav'];
 
-    constructor(private db: IClientDb<ClientJob>) { }
+    constructor(private db: IClientDb) { }
 
     /**
      * Scans the output directory for supported media files.
@@ -66,13 +66,13 @@ export class IngestionService implements IIngestion {
         }
 
         // 3. Register in Database
-        const job = await this.db.addRecording(newPath);
+        const job = await this.db.addRecording(newPath, new Date().toISOString());  // Change later to try to get date from file name
 
         // 4. Prompt for AI Configuration
         const config = await promptForJobConfig(path.basename(newPath));
 
         // 5. Update Database with selected options
-        await this.db.updateOptions(job.jobId, config);
+        await this.db.updateOptions(job.id, config);
     }
 
     /**

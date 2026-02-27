@@ -1,7 +1,7 @@
-import { NoteTemplate } from '@meeting-summarizer/shared';
-import { INote, ClientJob } from '../domain/clientJob';
-import { IFileManager, ObsidianConfig } from '../domain'; // Assuming types from previous step
+import { INote } from '../domain/ports';
+import { IFileManager, ObsidianConfig } from '../domain';
 import { noteTemplatesList } from '../templates/noteTemplates';
+import { ClientJob, NoteTemplate } from '../domain/models';
 
 export class NoteService implements INote {
     constructor(
@@ -16,7 +16,7 @@ export class NoteService implements INote {
 
         // 2. Inject the payloads into the placeholders
         content = content.replace('{{SUMMARY}}', summary);
-        content = content.replace('{{DATE}}', job.createdAt.split('T')[0]);
+        content = content.replace('{{DATE}}', job.recordedAt.split('T')[0]);
         content = content.replace('{{TRANSCRIPT}}', transcript ?? '');
 
         // 3. Strip the original media extension and append .md

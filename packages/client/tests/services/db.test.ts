@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import { LowDB } from '../../src/services/db';
-import { ClientJobStatus } from '../../src/domain/clientJob';
+import { ClientJobStatus } from '../../src/domain';
 
 describe('Database Service', () => {
     let mockFileSystem: any;
@@ -33,14 +33,14 @@ describe('Database Service', () => {
         }
     });
 
-    it('should add a new recording with WAITING_UPLOAD status', async () => {
+    it('should add a new recording with WAITING_UPLOAD clientStatus', async () => {
         // Act
         const job = await testDb.addRecording('C:\\fake\\video.mkv', 'fake_datetime');
 
         // Assert
         expect(job.filePath).toBe('C:\\fake\\video.mkv');
-        expect(job.createdAt).toBe('fake_datetime');
-        expect(job.status).toBe(ClientJobStatus.WAITING_UPLOAD);
+        expect(job.recordedAt).toBe('fake_datetime');
+        expect(job.clientStatus).toBe(ClientJobStatus.WAITING_UPLOAD);
 
         // Verify it actually saved to our test DB file
         const allJobs = await testDb.getAll();
@@ -56,21 +56,21 @@ describe('Database Service', () => {
 
         // Assert
         const jobs = await testDb.getAll();
-        expect(jobs[0].status).toBe(ClientJobStatus.WAITING_UPLOAD);
+        expect(jobs[0].clientStatus).toBe(ClientJobStatus.WAITING_UPLOAD);
     });
 
     it('should leave the job as FAILED if the file exists', async () => {
         // Arrange
         await testDb.addRecording('C:\\fake\\safe-video.mkv', 'fake_datetime');
         const initialJobs = await testDb.getAll();
-        await testDb.updateStatus(initialJobs[0].jobId, ClientJobStatus.FAILED)
+        await testDb.updateStatus(initialJobs[0].id, ClientJobStatus.FAILED)
 
         // Act
         await testDb.cleanPhantomFiles();
 
         // Assert
         const finalJobs = await testDb.getAll();
-        expect(finalJobs[0].status).toBe(ClientJobStatus.FAILED);
+        expect(finalJobs[0].clientStatus).toBe(ClientJobStatus.FAILED);
     });
 
     it('should mark a WAITING_UPLOAD job as DELETED if the file is missing from disk', async () => {
@@ -85,39 +85,39 @@ describe('Database Service', () => {
 
         // Assert
         const jobs = await testDb.getAll();
-        expect(jobs[0].status).toBe(ClientJobStatus.DELETED);
+        expect(jobs[0].clientStatus).toBe(ClientJobStatus.DELETED);
         expect(jobs[0].error).toContain('File was deleted from the local disk.');
         expect(cleanedCount).toBe(1);
     });
 
     // --- Retrieval Methods ---
 
-    it('should retrieve only jobs with WAITING_UPLOAD status', async () => {
+    it('should retrieve only jobs with WAITING_UPLOAD clientStatus', async () => {
         // Arrange
         const job1 = await testDb.addRecording('C:\\fake\\video1.mkv', 'fake_datetime1');
         const job2 = await testDb.addRecording('C:\\fake\\video2.mkv', 'fake_datetime2');
-        await testDb.updateStatus(job2.jobId, ClientJobStatus.COMPLETED);
+        await testDb.updateStatus(job2.id, ClientJobStatus.COMPLETED);
 
         // Act
         const pending = await testDb.getPendingUploads();
 
         // Assert
         expect(pending.length).toBe(1);
-        expect(pending[0].jobId).toBe(job1.jobId);
+        expect(pending[0].id).toBe(job1.id);
     });
 
-    it('should retrieve only jobs with READY status', async () => {
+    it('should retrieve only jobs with READY clientStatus', async () => {
         // Arrange
         const job1 = await testDb.addRecording('C:\\fake\\video1.mkv', 'fake_datetime1');
         const job2 = await testDb.addRecording('C:\\fake\\video2.mkv', 'fake_datetime2');
-        await testDb.updateStatus(job1.jobId, ClientJobStatus.READY);
+        await testDb.updateStatus(job1.id, ClientJobStatus.READY);
 
         // Act
         const readyJobs = await testDb.getReadyToFetch();
 
         // Assert
         expect(readyJobs.length).toBe(1);
-        expect(readyJobs[0].jobId).toBe(job1.jobId);
+        expect(readyJobs[0].id).toBe(job1.id);
     });
 
     it('should retrieve all jobs sorted by newest first (descending order)', async () => {
@@ -130,8 +130,8 @@ describe('Database Service', () => {
 
         // Assert
         expect(allJobs.length).toBe(2);
-        expect(allJobs[0].jobId).toBe(newerJob.jobId); // Newest should be first
-        expect(allJobs[1].jobId).toBe(olderJob.jobId);
+        expect(allJobs[0].id).toBe(newerJob.id); // Newest should be first
+        expect(allJobs[1].id).toBe(olderJob.id);
     });
 
     it('should find a job by its exact file path', async () => {
@@ -145,21 +145,21 @@ describe('Database Service', () => {
 
         // Assert
         expect(foundJob).toBeDefined();
-        expect(foundJob?.jobId).toBe(expectedJob.jobId);
+        expect(foundJob?.id).toBe(expectedJob.id);
     });
 
     // --- Update Methods ---
 
-    it('should update a specific job status', async () => {
+    it('should update a specific job clientStatus', async () => {
         // Arrange
         const job = await testDb.addRecording('C:\\fake\\video.mkv', 'fake_datetime');
 
         // Act
-        await testDb.updateStatus(job.jobId, ClientJobStatus.PROCESSING);
+        await testDb.updateStatus(job.id, ClientJobStatus.PROCESSING);
 
         // Assert
         const allJobs = await testDb.getAll();
-        expect(allJobs[0].status).toBe(ClientJobStatus.PROCESSING);
+        expect(allJobs[0].clientStatus).toBe(ClientJobStatus.PROCESSING);
     });
 
     it('should mark a job as COMPLETED', async () => {
@@ -167,43 +167,43 @@ describe('Database Service', () => {
         const job = await testDb.addRecording('C:\\fake\\video.mkv', 'fake_datetime');
 
         // Act
-        await testDb.markCompleted(job.jobId);
+        await testDb.markCompleted(job.id);
 
         // Assert
         const allJobs = await testDb.getAll();
-        expect(allJobs[0].status).toBe(ClientJobStatus.COMPLETED);
+        expect(allJobs[0].clientStatus).toBe(ClientJobStatus.COMPLETED);
     });
 
     // --- Error, Retry, and Abandonment Methods ---
 
-    it('should increment retryCount and set status to FAILED on initial errors', async () => {
+    it('should increment retryCount and set clientStatus to FAILED on initial errors', async () => {
         // Arrange
         const job = await testDb.addRecording('C:\\fake\\video.mkv', 'fake_datetime');
         const errorMessage = 'Network timeout during upload';
 
         // Act
-        await testDb.setError(job.jobId, errorMessage);
+        await testDb.setError(job.id, errorMessage);
 
         // Assert
         const allJobs = await testDb.getAll();
-        expect(allJobs[0].status).toBe(ClientJobStatus.FAILED);
+        expect(allJobs[0].clientStatus).toBe(ClientJobStatus.FAILED);
         expect(allJobs[0].retryCount).toBe(1);
         expect(allJobs[0].error).toBe(errorMessage);
     });
 
-    it('should set status to ABANDONED after 4 retries', async () => {
+    it('should set clientStatus to ABANDONED after 4 retries', async () => {
         // Arrange
         const job = await testDb.addRecording('C:\\fake\\video.mkv', 'fake_datetime');
 
         // Act - Simulate failing 4 times
-        await testDb.setError(job.jobId, 'Error 1');
-        await testDb.setError(job.jobId, 'Error 2');
-        await testDb.setError(job.jobId, 'Error 3');
-        await testDb.setError(job.jobId, 'Fatal Error 4');
+        await testDb.setError(job.id, 'Error 1');
+        await testDb.setError(job.id, 'Error 2');
+        await testDb.setError(job.id, 'Error 3');
+        await testDb.setError(job.id, 'Fatal Error 4');
 
         // Assert
         const allJobs = await testDb.getAll();
-        expect(allJobs[0].status).toBe(ClientJobStatus.ABANDONED);
+        expect(allJobs[0].clientStatus).toBe(ClientJobStatus.ABANDONED);
         expect(allJobs[0].retryCount).toBe(4);
         expect(allJobs[0].error).toBe('Fatal Error 4');
     });
@@ -213,17 +213,17 @@ describe('Database Service', () => {
         const job = await testDb.addRecording('C:\\fake\\video.mkv', 'fake_datetime');
 
         // Force it into an ABANDONED state
-        await testDb.setError(job.jobId, 'Error 1');
-        await testDb.setError(job.jobId, 'Error 2');
-        await testDb.setError(job.jobId, 'Error 3');
-        await testDb.setError(job.jobId, 'Error 4');
+        await testDb.setError(job.id, 'Error 1');
+        await testDb.setError(job.id, 'Error 2');
+        await testDb.setError(job.id, 'Error 3');
+        await testDb.setError(job.id, 'Error 4');
 
         // Act - User triggers manual reset
-        await testDb.resetJobForRetry(job.jobId);
+        await testDb.resetJobForRetry(job.id);
 
         // Assert
         const allJobs = await testDb.getAll();
-        expect(allJobs[0].status).toBe(ClientJobStatus.WAITING_UPLOAD);
+        expect(allJobs[0].clientStatus).toBe(ClientJobStatus.WAITING_UPLOAD);
         expect(allJobs[0].retryCount).toBe(0);
         expect(allJobs[0].error).toBeUndefined(); // Should clear the old error
     });
@@ -234,11 +234,11 @@ describe('Database Service', () => {
         const errorMessage = '401 Unauthorized: Invalid API Key';
 
         // Act - Pass true for the isFatal parameter
-        await testDb.setError(job.jobId, errorMessage, true);
+        await testDb.setError(job.id, errorMessage, true);
 
         // Assert
         const allJobs = await testDb.getAll();
-        expect(allJobs[0].status).toBe(ClientJobStatus.ABANDONED);
+        expect(allJobs[0].clientStatus).toBe(ClientJobStatus.ABANDONED);
         // The retry count should not increment on a fatal error
         expect(allJobs[0].retryCount).toBe(0);
         expect(allJobs[0].error).toBe(errorMessage);
@@ -247,14 +247,14 @@ describe('Database Service', () => {
     it('should still allow an ABANDONED fatal job to be manually reset by the user', async () => {
         // Arrange
         const job = await testDb.addRecording('C:\\fake\\video.mkv', 'fake_datetime');
-        await testDb.setError(job.jobId, '401 Unauthorized', true); // Fatal error
+        await testDb.setError(job.id, '401 Unauthorized', true); // Fatal error
 
         // Act - User fixes their API key in settings and clicks "Retry"
-        await testDb.resetJobForRetry(job.jobId);
+        await testDb.resetJobForRetry(job.id);
 
         // Assert
         const allJobs = await testDb.getAll();
-        expect(allJobs[0].status).toBe(ClientJobStatus.WAITING_UPLOAD);
+        expect(allJobs[0].clientStatus).toBe(ClientJobStatus.WAITING_UPLOAD);
         expect(allJobs[0].retryCount).toBe(0);
         expect(allJobs[0].error).toBeUndefined();
     });

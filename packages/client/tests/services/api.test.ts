@@ -1,9 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import axios from 'axios';
 import fs from 'fs';
-import { ApiService } from '../../src/services/api';
-import { configService } from '../../src/services/config';
-import { SyncError } from '../../src/domain/clientJob';
+import { ApiService, configService } from '../../src/services';
+import { SyncError } from '../../src/domain/';
 import { TranscriptionLanguage, AIPromptTemplate } from '@meeting-summarizer/shared';
 
 // 1. Mock External Dependencies
@@ -61,7 +60,7 @@ describe('ApiService', () => {
   });
 
   describe('uploadMeeting()', () => {
-    const jobId = 'job-123'
+    const id = 'job-123'
     const mockOptions = {
       language: TranscriptionLanguage.ENGLISH,
       template: AIPromptTemplate.MEETING
@@ -75,10 +74,10 @@ describe('ApiService', () => {
 
     it('successfully uploads and returns the response', async () => {
       mockAxiosInstance.post.mockResolvedValueOnce({
-        data: { success: true, jobId: 'job-123', message: 'Uploaded' }
+        data: { success: true, id: 'job-123', message: 'Uploaded' }
       });
 
-      const response = await api.uploadMeeting('fake-path.mkv', jobId, mockOptions);
+      const response = await api.uploadMeeting('fake-path.mkv', id, mockOptions);
 
       expect(response.success).toBe(true);
       expect(mockAxiosInstance.post).toHaveBeenCalledTimes(1);
@@ -100,7 +99,7 @@ describe('ApiService', () => {
       });
 
       const onProgress = vi.fn();
-      await api.uploadMeeting('fake-path.mkv', jobId, mockOptions, onProgress);
+      await api.uploadMeeting('fake-path.mkv', id, mockOptions, onProgress);
 
       expect(onProgress).toHaveBeenCalledWith(50); // 50/100 = 50%
     });
@@ -108,7 +107,7 @@ describe('ApiService', () => {
     it('throws a local Error if the file does not exist', async () => {
       vi.mocked(fs.existsSync).mockReturnValue(false);
 
-      await expect(api.uploadMeeting('ghost-file.mkv', jobId, mockOptions))
+      await expect(api.uploadMeeting('ghost-file.mkv', id, mockOptions))
         .rejects.toThrow('File not found: ghost-file.mkv');
 
       expect(mockAxiosInstance.post).not.toHaveBeenCalled();
