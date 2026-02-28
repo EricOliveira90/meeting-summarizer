@@ -50,7 +50,7 @@ export class IngestionService implements IIngestion {
         }
     }
 
-    /**
+/**
      * Orchestrates the ingestion of a single new file.
      * Prompts for title, renames the file, adds it to the DB, and configures AI options.
      */
@@ -65,14 +65,42 @@ export class IngestionService implements IIngestion {
             return;
         }
 
+        // Extract the date from the original OBS filename before saving to the database
+        const originalFilename = path.basename(oldPath);
+        const recordingDate = this.extractDateFromFilename(originalFilename);
+
         // 3. Register in Database
-        const job = await this.db.addRecording(newPath, new Date().toISOString());  // Change later to try to get date from file name
+        const job = await this.db.addRecording(newPath, recordingDate);
 
         // 4. Prompt for AI Configuration
         const config = await promptForJobConfig(path.basename(newPath));
 
         // 5. Update Database with selected options
         await this.db.updateOptions(job.id, config);
+    }
+
+    /**
+     * Attempts to parse standard OBS filenames (e.g., '2026-02-27 10-02-23.mkv')
+     * Returns an ISO-8601 string. Falls back to current time if pattern isn't matched.
+     */
+    private extractDateFromFilename(filename: string): string {
+        // Regex looks for "YYYY-MM-DD HH-mm-ss"
+        const obsDatePattern = /(\d{4}-\d{2}-\d{2})\s(\d{2})-(\d{2})-(\d{2})/;
+        const match = filename.match(obsDatePattern);
+
+        if (match) {
+            const [_, datePart, hour, minute, second] = match;
+            // Assemble into a format the Date object can parse: YYYY-MM-DDTHH:mm:ss
+            const parsedDate = new Date(`${datePart}T${hour}:${minute}:${second}`);
+            
+            // Ensure the date is actually valid before returning
+            if (!isNaN(parsedDate.getTime())) {
+                return parsedDate.toISOString();
+            }
+        }
+
+        // Fallback for manually dropped-in files that don't match the OBS pattern
+        return new Date().toISOString();
     }
 
     /**
