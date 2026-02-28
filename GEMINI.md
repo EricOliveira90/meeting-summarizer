@@ -8,7 +8,7 @@
 
 **Core Strategy:**
 
-1. **Client (CLI):** Controls OBS Studio for recording and acts as an **Offline-First State Machine** that queues uploads and gracefully handles tunnel disconnects.
+1. **Client (CLI):** Controls OBS Studio for recording and acts as an **Offline-First State Machine** that queues uploads, processes batches, and gracefully handles tunnel disconnects.
 2. **Server (Local API):** Hosted on a Personal PC, processes heavy workloads (FFmpeg, WhisperX, Gemini).
 3. **Bridge (Jump Box):** A Google Cloud VM acts as a secure rendezvous point to connect Client and Server without exposing home ports.
 
@@ -34,8 +34,8 @@ To bypass corporate firewalls and avoid exposing home network ports, the system 
 
 ### Root
 
-* **Manager:** `npm workspaces`
-* **Runtime:** Node.js (Latest LTS)
+* **Manager:** `npm workspaces`.
+* **Runtime:** Node.js (Latest LTS).
 * **Testing:** `vitest` (Dependency injection used for isolated testing).
 
 ### `packages/client` (The CLI)
@@ -76,6 +76,8 @@ export enum AIPromptTemplate {
   SUMMARY = 'summary'    // Brief TL;DR
 }
 
+```
+
 ---
 
 ## 5. [Client] Logic & Workflows
@@ -98,17 +100,24 @@ interface AppConfig {
 
 ### B. Recording Workflow
 
-1. **OBS Connection:** Connect via WebSocket.
+1. **OBS Connection:** Connect via WebSocket and force unmute the microphone.
 2. **Scene Automation:** Auto-create `wasapi_input_capture` (Mic) and `wasapi_output_capture` (Desktop).
-3. **Active Recording:** Global Hotkeys (`M` Mute, `ENTER` Stop) with raw-mode `stdin` draining.
-4. **Post-Processing:** Stop -> Rename with Retry Loop (Windows EBUSY handling).
+3. **Active Recording:** Listen for Global Hotkeys (`M` to toggle Mute, `ENTER` to Stop) while actively draining `stdin` to prevent terminal buffering issues.
+4. **Post-Processing:** Stop OBS -> Prompt user for Meeting Title -> Rename file with Retry Loop (handling Windows EBUSY locking) -> Add to Local DB as `WAITING_UPLOAD`.
 
-### C. Sync Workflow
+### C. The "Magic Batch" Sync Workflow (`SyncManager`)
 
-1. **Tunnel Check:** Ping `http://127.0.0.1:3000` to ensure SSH tunnel is active.
-2. **Upload:** Stream via `multipart/form-data` with `x-api-key`.
-3. **Poll:** Check `/jobs/:id` until `COMPLETED`.
-4. **Artifacts:** Generate `.txt` transcript and formatted `.md` for Obsidian.
+The CLI uses a strict, 4-step orchestration cycle to prevent data loss and handle network instability.
+
+1. **Auto-Ingestion (`scanDirectory`):** Scans the local output folder for new, untracked media files. Prompts the user to title and configure AI options (Language, Template) for any new files found.
+2. **Update States (`updateActiveStates`):** Polls the server (`GET /jobs/:id`) to check if any locally tracked `PROCESSING` jobs have finished. Updates the local DB to `READY` or `FAILED` accordingly.
+3. **Fetch Results (`fetchResults`):** Downloads completed jobs (`READY`). Saves the raw summaries and transcriptions to local `.txt` files in the project directory, and renders the formatted output into the user's Obsidian vault. Marks job as `COMPLETED`.
+4. **Push Pending (`pushPending`):** Uploads any `WAITING_UPLOAD` files or retries `FAILED` jobs (up to a max of 3 retries) via `multipart/form-data`.
+
+### D. Local Reconciliation & Resilience
+
+* **Ghost File Cleanup:** On startup, the CLI runs `cleanPhantomFiles()` to ensure jobs in the database still have matching physical files on the hard drive. If a user manually deletes a `.mkv`, the database record is safely marked as `DELETED` to prevent upload crashes.
+* **Network Error Handling:** If the SSH Tunnel drops (`ECONNREFUSED`/`ECONNRESET`), the error is marked as transient, the job is flagged as `FAILED`, and the retry count increments. Fatal errors (e.g., 401 Unauthorized) mark the job as `ABANDONED` instantly.
 
 ---
 
@@ -156,8 +165,9 @@ packages/server/
 
 ### 2. Platform Specifics (Windows)
 
-* **Pathing:** Use `path.join()`.
-* **File Locking:** Implement backoff/retry for all file moves/renames.
+* **Pathing:** Use `path.join()` or `path.resolve()` strictly to handle Windows backslashes properly.
+* **File Locking:** Implement backoff/retry for all file moves/renames, as OBS and Windows often hold brief locks on media files.
+* **Executable Packaging:** To distribute as a standalone `.exe`, absolute paths for user data (like `client-db.json` and `.env` configs) must point to a stable directory like `%APPDATA%`, rather than relying on `process.cwd()`.
 
 ### 3. Error Handling
 
