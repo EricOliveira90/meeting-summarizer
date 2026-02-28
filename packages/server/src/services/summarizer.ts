@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs';
 
 const API_KEY = process.env.GEMINI_API_KEY || '';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3-flash-preview'
 const SUMMARIES_DIR = path.join(process.cwd(), 'summaries');
 
 // Ensure directory exists
@@ -18,7 +19,7 @@ export interface SummaryResult {
 
 export class SummaryService {
   private ai: GoogleGenAI;
-  private modelId = 'gemini-2.5-flash';
+  private modelId = GEMINI_MODEL;
 
   constructor() {
     if (!API_KEY) {
