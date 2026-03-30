@@ -33,17 +33,17 @@ Unit tests cover: correct command construction with flags, JSON event parsing fo
 
 ### Acceptance criteria
 
-- [ ] `AudioRecService` exists with `startRecording`, `stopRecording`, `toggleMute` methods
-- [ ] `startRecording` spawns `audio-rec record` with correct flags (output path, format=wav, quality=professional, optional device indices, optional mic-muted)
-- [ ] JSON stdout is parsed line-by-line into typed events (`started`, `audio_state`, `muted`, `processing`, `completed`, `cancelled`, `error`)
-- [ ] `stopRecording` spawns a separate `audio-rec stop` process with optional session ID
-- [ ] `toggleMute` spawns a separate `audio-rec mute` process with optional session ID
-- [ ] `ObsConfig` is removed from domain configs; `AudioRecConfig` with `inputDeviceIndex?` and `outputDeviceIndex?` is added
-- [ ] `obs` field is removed from `AppConfig`; `audioRec` field is added
-- [ ] Config service no longer has OBS defaults or OBS env vars; has `audioRec` defaults (empty device indices)
-- [ ] Setup wizard no longer prompts for OBS WebSocket IP, port, or password
-- [ ] Error events from `audio-rec` are surfaced clearly (tool not installed, FFmpeg missing, etc.)
-- [ ] Unit tests cover command construction, all JSON event types, stop/mute commands, and error scenarios
+- [x] `AudioRecService` exists with `startRecording`, `stopRecording`, `toggleMute` methods
+- [x] `startRecording` spawns `audio-rec record` with correct flags (output path, format=wav, quality=professional, optional device indices, optional mic-muted)
+- [x] JSON stdout is parsed line-by-line into typed events (`started`, `audio_state`, `muted`, `processing`, `completed`, `cancelled`, `error`)
+- [x] `stopRecording` spawns a separate `audio-rec stop` process with optional session ID
+- [x] `toggleMute` spawns a separate `audio-rec mute` process with optional session ID
+- [x] `ObsConfig` is removed from domain configs; `AudioRecConfig` with `inputDeviceIndex?` and `outputDeviceIndex?` is added
+- [x] `obs` field is removed from `AppConfig`; `audioRec` field is added
+- [x] Config service no longer has OBS defaults or OBS env vars; has `audioRec` defaults (empty device indices)
+- [x] Setup wizard no longer prompts for OBS WebSocket IP, port, or password
+- [x] Error events from `audio-rec` are surfaced clearly (tool not installed, FFmpeg missing, etc.)
+- [x] Unit tests cover command construction, all JSON event types, stop/mute commands, and error scenarios
 
 ---
 
@@ -63,15 +63,15 @@ Unit tests cover: device JSON parsing into typed arrays, status parsing (active 
 
 ### Acceptance criteria
 
-- [ ] `getDevices()` spawns `audio-rec devices` and returns typed input/output device arrays
-- [ ] `getStatus()` spawns `audio-rec status` and returns session info or null
-- [ ] Audio Setup menu item spawns `getDevices()`, presents devices via inquirer, and saves selected indices to config
-- [ ] Device selection UI shows device name, index, default status, and sample rate
-- [ ] `startRecording` passes `-id`/`-od` flags when device indices are configured
-- [ ] `startRecording` omits device flags when no indices are configured (uses system defaults)
-- [ ] Main entry point's `audio` command routes to the updated audio setup flow
-- [ ] Audio Setup warns that device indices may change if devices are plugged/unplugged
-- [ ] Unit tests cover device parsing, status parsing, config persistence, and default fallback
+- [x] `getDevices()` spawns `audio-rec devices` and returns typed input/output device arrays
+- [x] `getStatus()` spawns `audio-rec status` and returns session info or null
+- [x] Audio Setup menu item spawns `getDevices()`, presents devices via inquirer, and saves selected indices to config
+- [x] Device selection UI shows device name, index, default status, and sample rate
+- [x] `startRecording` passes `-id`/`-od` flags when device indices are configured
+- [x] `startRecording` omits device flags when no indices are configured (uses system defaults)
+- [x] Main entry point's `audio` command routes to the updated audio setup flow
+- [x] Audio Setup warns that device indices may change if devices are plugged/unplugged
+- [x] Unit tests cover device parsing, status parsing, config persistence, and default fallback
 
 ---
 
@@ -97,21 +97,21 @@ Unit tests cover: file naming pattern for both title-provided and title-skipped 
 
 ### Acceptance criteria
 
-- [ ] Record command uses `AudioRecService` instead of OBS (no OBS connection/disconnection)
-- [ ] User is prompted for an optional title before recording starts
-- [ ] Filename follows `YYYY-MM-DD_HH-mm_Title.wav` pattern with timestamp at the beginning
-- [ ] Skipping the title uses `recording` as placeholder in the filename
-- [ ] Hotkey M toggles mute via `audioRecService.toggleMute()` with visual feedback
-- [ ] Hotkey Enter stops recording via `audioRecService.stopRecording()`
-- [ ] Audio state changes are displayed in real-time (system audio, mic, mute status)
-- [ ] Processing progress is displayed (merging, trimming stages)
-- [ ] Completion event shows final file path and file size
-- [ ] Errors from `audio-rec` are displayed clearly
-- [ ] Post-recording title prompt appears when title was skipped
-- [ ] File is renamed preserving the original timestamp
-- [ ] Title sanitization replaces special characters with underscores and collapses consecutive underscores
-- [ ] All OBS-specific logic is removed from the record command
-- [ ] Unit tests cover file naming, title sanitization, and post-recording rename
+- [x] Record command uses `AudioRecService` instead of OBS (no OBS connection/disconnection)
+- [x] User is prompted for an optional title before recording starts
+- [x] Filename follows `YYYY-MM-DD_HH-mm_Title.wav` pattern with timestamp at the beginning
+- [x] Skipping the title uses `recording` as placeholder in the filename
+- [x] Hotkey M toggles mute via `audioRecService.toggleMute()` with visual feedback
+- [x] Hotkey Enter stops recording via `audioRecService.stopRecording()`
+- [x] Audio state changes are displayed in real-time (system audio, mic, mute status)
+- [x] Processing progress is displayed (merging, trimming stages)
+- [x] Completion event shows final file path and file size
+- [x] Errors from `audio-rec` are displayed clearly
+- [x] Post-recording title prompt appears when title was skipped
+- [x] File is renamed preserving the original timestamp
+- [x] Title sanitization replaces special characters with underscores and collapses consecutive underscores
+- [x] All OBS-specific logic is removed from the record command
+- [x] Unit tests cover file naming, title sanitization, and post-recording rename
 
 ---
 
@@ -129,10 +129,10 @@ The meeting's status transitions to `RECORDING` when recording starts (this inte
 
 ### Acceptance criteria
 
-- [ ] Record command shows a meeting picker when `CREATED` meetings exist
-- [ ] Picker lists meetings by title and scheduled time, plus a "Record without meeting" option
-- [ ] Selecting a meeting sets the filename from the meeting title with current timestamp
-- [ ] Selecting a meeting skips the title prompt and starts recording immediately
-- [ ] "Record without meeting" falls through to the on-the-fly flow
-- [ ] If no `CREATED` meetings exist, the on-the-fly flow starts directly (no empty picker shown)
-- [ ] Meeting status transitions to `RECORDING` when recording begins
+- [x] Record command shows a meeting picker when `CREATED` meetings exist
+- [x] Picker lists meetings by title and scheduled time, plus a "Record without meeting" option
+- [x] Selecting a meeting sets the filename from the meeting title with current timestamp
+- [x] Selecting a meeting skips the title prompt and starts recording immediately
+- [x] "Record without meeting" falls through to the on-the-fly flow
+- [x] If no `CREATED` meetings exist, the on-the-fly flow starts directly (no empty picker shown)
+- [x] Meeting status transitions to `RECORDING` when recording begins

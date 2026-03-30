@@ -22,7 +22,7 @@ This project solves the "Work Laptop" restriction problem using a **Reverse SSH 
 ### Hardware
 
 * **Home PC (Server):** Windows 10/11, NVIDIA GPU (Recommended for WhisperX), Node.js (LTS), Python 3.10+.
-* **Work Laptop (Client):** Windows 10/11, OBS Studio installed.
+* **Work Laptop (Client):** Windows 10/11, [`audio-rec`](https://github.com/user/audio-rec) CLI tool installed (Rust-based, globally available in PATH), FFmpeg installed.
 * **Cloud:** A Google Cloud Platform (GCP) Free Tier account.
 
 ### Software Keys
@@ -145,25 +145,48 @@ npm install
 
 ```
 
-### 2. OBS Setup
+### 2. Audio Recording Setup
 
-1. Install **OBS Studio**.
-2. Enable **WebSocket Server** (Tools -> WebSocket Server Settings).
-* Port: `4455`, Password: `password`.
+The client uses **`audio-rec`**, a lightweight Rust CLI tool for recording system audio and microphone input. No GUI applications (like OBS) are needed.
 
+**Install `audio-rec`:**
 
-3. Create a Scene named **"Meeting Recording"**.
-4. Add Sources:
-* **Audio Input Capture:** Your Microphone.
-* **Audio Output Capture:** Desktop Audio (Speakers).
+```powershell
+# audio-rec must be globally available in PATH
+# Install via cargo (Rust toolchain required):
+cargo install audio-rec
 
+# Verify installation:
+audio-rec --version
+```
 
+**Configure audio devices:**
 
-### 3. Configuration (`packages/client/config.json`)
+```bash
+# Run the audio setup wizard from the CLI:
+npm start
+# Select "Audio Setup 🎙️" from the menu
+# Or run directly:
+npx ts-node src/index.ts audio
+```
+
+The setup wizard will:
+* List all available input devices (microphones) and output devices (speakers)
+* Let you select which devices to use for recording
+* Save device indices to config (or use system defaults)
+
+> ⚠️ **Note:** Device indices may change if audio devices are plugged/unplugged. Re-run audio setup if your devices change.
+
+### 3. Configuration
+
+The client uses a config store (managed via the setup wizard). Key settings:
 
 ```json
 {
-  "obs": { "ip": "127.0.0.1", "port": 4455, "password": "password" },
+  "audioRec": {
+    "inputDeviceIndex": 0,
+    "outputDeviceIndex": 0
+  },
   "server": {
     "ip": "127.0.0.1",
     "port": 3000,
@@ -174,8 +197,11 @@ npm install
     "obsidianVault": "C:\\Users\\Work\\Documents\\Obsidian\\Vault"
   }
 }
-
 ```
+
+Run `npm start` and select **Settings ⚙️** to configure server connection and paths.
+Run **Audio Setup 🎙️** to configure recording devices.
+
 
 ### 4. Connect the Tunnel
 
@@ -224,14 +250,16 @@ The server uses a pluggable AI provider system. Set `AI_PROVIDER` env var (defau
 ### 1. Recording a Meeting
 
 1. Run the CLI: `npm start` (in `packages/client`).
-2. Select **🔴 Record Meeting**.
-3. The CLI will auto-configure OBS.
-4. **Hotkeys:**
-* `M`: Toggle Mute.
-* `ENTER`: Stop Recording.
-
-
-5. Enter a Title when prompted (e.g., "Q1 Planning").
+2. Select **🔴 Start Recording**.
+3. If pre-created meetings exist, select one from the picker — or choose **"Record without meeting"** for an ad-hoc recording.
+4. Enter an optional title (or press Enter to skip — you can name it after recording).
+5. Recording starts via `audio-rec` (WAV format, professional quality).
+6. **Hotkeys during recording:**
+   * `M`: Toggle Microphone Mute/Unmute.
+   * `ENTER`: Stop Recording.
+7. Real-time feedback shows audio state, processing progress, and completion info.
+8. After stopping, if you skipped the title, you'll be prompted to name the recording.
+9. Files are saved as `YYYY-MM-DD_HH-mm_Title.wav` in your configured output directory.
 
 ### 2. Syncing & Transcribing
 
@@ -249,5 +277,8 @@ The server uses a pluggable AI provider system. Set `AI_PROVIDER` env var (defau
 | --- | --- | --- |
 | **`ECONNREFUSED 127.0.0.1:3000`** | Tunnel is down. | Check if the `ssh -L` command is running on your laptop. |
 | **`ECONNRESET`** | Server IP mismatch. | Ensure Server listens on `127.0.0.1` (not `::1`) and `ssh -R` points to `127.0.0.1`. |
-| **OBS Connection Failed** | WebSocket disabled. | Enable WebSocket in OBS settings and check port/password. |
+| **`audio-rec could not be started: spawn audio-rec ENOENT`** | `audio-rec` not installed or not in PATH. | Install `audio-rec` via `cargo install audio-rec` and ensure it's in your system PATH. |
+| **`FFmpeg is not installed or not found in PATH`** | FFmpeg missing. | Install FFmpeg and add it to your system PATH. `audio-rec` requires FFmpeg for audio processing. |
+| **No audio devices found** | `audio-rec` can't detect devices. | Check that audio devices are connected. Run `audio-rec devices` to verify. |
+| **Device indices changed** | Devices plugged/unplugged. | Re-run **Audio Setup 🎙️** from the menu to reconfigure device indices. |
 | **Transcription Error** | VRAM / CUDA. | Ensure Home PC GPU drivers are updated and `whisperx` is installed correctly. |
