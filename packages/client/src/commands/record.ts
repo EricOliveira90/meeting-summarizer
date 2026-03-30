@@ -1,211 +1,246 @@
-import { obsService, configService } from '../services';
+import { spawn } from 'child_process';
+import { AudioRecService, AudioRecEvent, configService, MeetingPicker, QUICK_START_VALUE } from '../services';
+import { IMeetingService, Meeting, MeetingStatus } from '../domain';
 import { GlobalKeyboardListener, IGlobalKeyEvent, IGlobalKeyDownMap } from 'node-global-key-listener';
 import inquirer from 'inquirer';
 import fs from 'fs';
 import path from 'path';
 
-// Interfaces
-interface NodeError extends Error {
-  code?: string;
+// ── Pure helpers (exported for testing) ──
+
+/**
+ * Sanitizes a title for use in filenames.
+ * Replaces special characters with underscores and collapses consecutive underscores.
+ */
+export function sanitizeTitle(title: string): string {
+    return title
+        .replace(/[^a-z0-9_]/gi, '_')
+        .replace(/_+/g, '_');
 }
 
 /**
- * Main Command: Orchestrates the recording workflow.
+ * Builds a recording filename: YYYY-MM-DD_HH-mm_Title.wav
+ * Uses "recording" as placeholder when no title is provided.
  */
-export async function recordCommand() {
-  console.log('Initializing recording workflow...');
+export function buildRecordingFilename(title: string | undefined, date: Date): string {
+    const sanitized = title && title.trim()
+        ? sanitizeTitle(title.trim())
+        : 'recording';
 
-  const connected = await obsService.connect();
-  if (!connected) {
-    console.error('❌ Could not connect to OBS. Please check settings and ensure OBS is running.');
-    return;
-  }
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
 
-  try {
-    // 1. Start Recording
-    await obsService.startRecording();
-    console.log('Recording started! 🔴');
-
-    // NEW: Force Unmute to prevent accidental silent recordings
-    await ensureMicIsLive();
-    
-    console.log('Controls:\n  [M]     - Toggle Mute\n  [Enter] - Stop Recording');
-
-    // 2. Wait for User Input (Hotkeys)
-    await handleHotkeys();
-
-    // 3. Stop Recording
-    await obsService.stopRecording();
-    console.log('Recording stopped.');
-
-  } catch (error) {
-    console.error('❌ Error during recording session:', error);
-  } finally {
-    // Always disconnect to clean up resources
-    await obsService.disconnect();
-  }
-
-  // 4. Post-Processing (Rename)
-  await handleFileRenaming();
+    return `${year}-${month}-${day}_${hours}-${minutes}_${sanitized}.wav`;
 }
 
-/**
- * Ensures the microphone is active (Unmuted) when recording starts.
- */
-async function ensureMicIsLive() {
-  // You might need to add getMuteStatus to your obsService first
-  // Or simply use setInputMute if your obs-websocket-js version supports it
-  try {
-    // This forces the 'Mic/Aux' input to be unmuted (false)
-    await obsService.setInputMute('Mic/Aux', false);
-    console.log('🎤 Microphone initialized: LIVE');
-  } catch (err) {
-    console.warn('⚠️ Could not force unmute. Please check OBS manually.');
-  }
-}
+// ── Record Command ──
 
 /**
- * Listens for Global Hotkeys.
- * Actively drains stdin to prevent 'Enter' from skipping the next prompt.
+ * Main Command: Orchestrates the recording workflow using audio-rec.
+ * Supports two flows:
+ * 1. Meeting picker flow: if pre-created meetings exist, show a picker
+ * 2. On-the-fly flow: prompt for optional title, record, rename after
+ * 
+ * @param meetingService Optional meeting service for meeting picker integration
  */
-function handleHotkeys(): Promise<void> {
-  return new Promise((resolve) => {
-    const listener = new GlobalKeyboardListener();
-    let isMuteKeyDown = false;
+export async function recordCommand(meetingService?: IMeetingService) {
+    console.log('Initializing recording workflow...');
 
-    // 1. RAW MODE: Silence 'm' echoing
-    if (process.stdin.isTTY) {
-      process.stdin.setRawMode(true);
-      process.stdin.resume(); // Ensure stream is flowing
-    }
+    const audioRecService = new AudioRecService(spawn);
+    let title: string | undefined;
+    let selectedMeeting: Meeting | undefined;
+    let meetingPicker: MeetingPicker | undefined;
 
-    // 2. DATA DRAIN: Actively discard input so it doesn't buffer
-    const drainInput = (key: Buffer) => {
-      // Allow force quit with Ctrl+C
-      if (key.toString() === '\u0003') {
-        process.exit();
-      }
-    };
-    process.stdin.on('data', drainInput);
+    // ── Phase 1: Determine title (meeting picker or on-the-fly) ──
 
-    listener.addListener((e: IGlobalKeyEvent, _down: IGlobalKeyDownMap) => {
-      // Toggle Mute
-      if (e.name === 'M') {
-        if (e.state === 'DOWN' && !isMuteKeyDown) {
-          isMuteKeyDown = true;
-          toggleMuteSafe().catch(console.error);
-        } else if (e.state === 'UP') {
-          isMuteKeyDown = false;
+    if (meetingService) {
+        meetingPicker = new MeetingPicker(meetingService);
+        const choices = await meetingPicker.getPickerChoices();
+
+        // Only show picker if there are CREATED meetings (choices > 1 means meetings + quick start)
+        const hasCreatedMeetings = choices.length > 1;
+
+        if (hasCreatedMeetings) {
+            const { selectedValue } = await inquirer.prompt([{
+                type: 'list',
+                name: 'selectedValue',
+                message: 'Select a meeting to record:',
+                choices: choices.map(c => ({ name: c.name, value: c.value })),
+            }]);
+
+            if (selectedValue !== QUICK_START_VALUE) {
+                // User selected a pre-created meeting
+                selectedMeeting = await meetingPicker.selectMeeting(selectedValue);
+                if (selectedMeeting) {
+                    title = selectedMeeting.title;
+                }
+            }
+            // else: fall through to on-the-fly flow
         }
-      }
-
-      // Stop Recording
-      if (e.name === 'RETURN' && e.state === 'DOWN') {
-        listener.kill();
-
-        // 3. THE FIX: Drain for a moment, then clean up WITHOUT pausing
-        setTimeout(() => {
-          if (process.stdin.isTTY) {
-            process.stdin.off('data', drainInput); // Stop draining
-            process.stdin.setRawMode(false);       // Restore normal text input
-            // REMOVED: process.stdin.pause(); <--- This was the culprit
-          }
-          resolve();
-        }, 300);
-      }
-    });
-  });
-}
-
-/**
- * Wrapper to toggle mute safely without crashing the listener.
- */
-async function toggleMuteSafe() {
-  try {
-    const isMuted = await obsService.toggleMute('Mic/Aux');
-    console.log(isMuted ? 'Microphone MUTED 🔇' : 'Microphone UNMUTED 🎤');
-  } catch (err) {
-    console.error('Error toggling mute:', err);
-  }
-}
-
-/**
- * Handles the user prompt for the title and the file renaming logic.
- */
-async function handleFileRenaming() {
-  const outputDir = configService.get('paths').output;
-  
-  if (!outputDir || !fs.existsSync(outputDir)) {
-    console.error(`❌ Recording directory not found: ${outputDir}`);
-    return;
-  }
-
-  // Prompt for Title
-  const { title } = await inquirer.prompt([{
-    type: 'input',
-    name: 'title',
-    message: 'Enter Meeting Title:',
-    validate: (input) => input.trim() !== '' ? true : 'Title is required'
-  }]);
-
-  const sanitizedTitle = title.trim().replace(/[^a-z0-9]/gi, '_').replace(/_+/g, '_');
-  
-  try {
-    renameLatestRecording(outputDir, sanitizedTitle);
-  } catch (err) {
-    console.error('❌ Failed to rename recording:', err);
-  }
-}
-
-/**
- * Finds the most recent MKV in the directory and renames it.
- * Includes retry logic for Windows file locking issues.
- */
-function renameLatestRecording(dir: string, title: string) {
-  // Find most recent MKV
-  const files = fs.readdirSync(dir)
-    .filter(f => f.endsWith('.mkv'))
-    .map(f => ({ name: f, time: fs.statSync(path.join(dir, f)).mtime.getTime() }))
-    .sort((a, b) => b.time - a.time);
-
-  if (files.length === 0) {
-    console.warn('⚠️ No MKV files found to rename.');
-    return;
-  }
-
-  const recentFile = files[0].name;
-  const oldPath = path.join(dir, recentFile);
-
-  // Generate new filename: YYYY-MM-DD_HH-mm_Title.mkv
-  const now = new Date();
-  const dateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
-  const timeStr = `${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}`;
-  
-  const newFilename = `${dateStr}_${timeStr}_${title}.mkv`;
-  const newPath = path.join(dir, newFilename);
-
-  // Retry loop for renaming (Wait for OBS to release lock)
-  const maxAttempts = 5;
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      // Small synchronous delay to allow file system release
-      const stopUntil = Date.now() + 1000;
-      while (Date.now() < stopUntil) { /* busy wait */ }
-
-      fs.renameSync(oldPath, newPath);
-      
-      console.log('\n✅ File renamed successfully:');
-      console.log(`From: ${recentFile}`);
-      console.log(`To:   ${newFilename}\n`);
-      return; 
-      
-    } catch (error) {
-      const err = error as NodeError;
-      if (err.code === 'EBUSY' && attempt < maxAttempts) {
-        console.log(`File locked, retrying (${attempt}/${maxAttempts})...`);
-      } else {
-        throw err;
-      }
     }
-  }
+
+    // On-the-fly flow: prompt for optional title if no meeting was selected
+    if (!selectedMeeting) {
+        const { inputTitle } = await inquirer.prompt([{
+            type: 'input',
+            name: 'inputTitle',
+            message: 'Enter a title or press Enter to skip:',
+        }]);
+        title = inputTitle || undefined;
+    }
+
+    // ── Phase 2: Build filename and start recording ──
+
+    const recordingStartTime = new Date();
+    const filename = buildRecordingFilename(title, recordingStartTime);
+    const outputDir = configService.get('paths').output;
+    const outputPath = path.join(outputDir, filename);
+
+    // Ensure output directory exists
+    if (!fs.existsSync(outputDir)) {
+        fs.mkdirSync(outputDir, { recursive: true });
+    }
+
+    // Read device config
+    const audioRecConfig = configService.get('audioRec');
+
+    // Start recording
+    try {
+        audioRecService.startRecording({
+            outputPath,
+            inputDeviceIndex: audioRecConfig.inputDeviceIndex,
+            outputDeviceIndex: audioRecConfig.outputDeviceIndex,
+        });
+
+        // Listen for JSON events
+        audioRecService.onEvent((event: AudioRecEvent) => {
+            switch (event.type) {
+                case 'started':
+                    console.log(`⏺ Recording started: ${event.session_id}`);
+                    console.log(`   File: ${event.file_path}`);
+                    break;
+                case 'audio_state':
+                    console.log(`🔊 Audio: System=${event.loopback_has_audio ? 'ON' : 'OFF'}, Mic=${event.mic_has_audio ? 'ON' : 'OFF'}, Muted=${event.is_mic_muted ? 'YES' : 'NO'}`);
+                    break;
+                case 'muted':
+                    console.log(event.is_muted ? '🔇 Microphone MUTED' : '🎤 Microphone UNMUTED');
+                    break;
+                case 'processing':
+                    console.log(`⏳ Processing: ${event.message}`);
+                    break;
+                case 'completed':
+                    console.log(`✅ Recording completed: ${event.file_path}`);
+                    console.log(`   Size: ${event.file_size_mb} MB`);
+                    break;
+                case 'cancelled':
+                    console.log(`⚠️ Recording cancelled: ${event.message}`);
+                    break;
+                case 'error':
+                    console.error(`❌ Error: ${event.message}`);
+                    break;
+            }
+        });
+
+        console.log('Recording started! 🔴');
+        console.log('Controls:\n  [M]     - Toggle Mute\n  [Enter] - Stop Recording');
+
+        // Wait for hotkeys
+        await handleHotkeys(audioRecService);
+
+        // Stop recording
+        audioRecService.stopRecording();
+        console.log('Stopping recording...');
+
+        // Wait a moment for the completed event to arrive
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+    } catch (error) {
+        console.error('❌ Error during recording session:', error);
+        return;
+    }
+
+    // ── Phase 3: Post-recording ──
+
+    // Mark meeting as RECORDED if one was selected
+    if (selectedMeeting && meetingPicker) {
+        await meetingPicker.markRecordingStopped(selectedMeeting.id);
+    }
+
+    // Prompt for title if it was skipped (on-the-fly flow only)
+    const usedPlaceholder = !title || !title.trim();
+    if (usedPlaceholder) {
+        const { newTitle } = await inquirer.prompt([{
+            type: 'input',
+            name: 'newTitle',
+            message: 'Enter a title for this recording (or press Enter to keep "recording"):',
+        }]);
+
+        if (newTitle && newTitle.trim()) {
+            const newFilename = buildRecordingFilename(newTitle, recordingStartTime);
+            const newPath = path.join(outputDir, newFilename);
+
+            try {
+                if (fs.existsSync(outputPath)) {
+                    fs.renameSync(outputPath, newPath);
+                    console.log(`\n✅ File renamed:`);
+                    console.log(`   From: ${filename}`);
+                    console.log(`   To:   ${newFilename}\n`);
+                }
+            } catch (err) {
+                console.error('❌ Failed to rename recording:', err);
+            }
+        }
+    }
+}
+
+/**
+ * Listens for Global Hotkeys during recording.
+ */
+function handleHotkeys(audioRecService: AudioRecService): Promise<void> {
+    return new Promise((resolve) => {
+        const listener = new GlobalKeyboardListener();
+        let isMuteKeyDown = false;
+
+        // RAW MODE: Silence 'm' echoing
+        if (process.stdin.isTTY) {
+            process.stdin.setRawMode(true);
+            process.stdin.resume();
+        }
+
+        // DATA DRAIN: Actively discard input so it doesn't buffer
+        const drainInput = (key: Buffer) => {
+            if (key.toString() === '\u0003') {
+                process.exit();
+            }
+        };
+        process.stdin.on('data', drainInput);
+
+        listener.addListener((e: IGlobalKeyEvent, _down: IGlobalKeyDownMap) => {
+            // Toggle Mute
+            if (e.name === 'M') {
+                if (e.state === 'DOWN' && !isMuteKeyDown) {
+                    isMuteKeyDown = true;
+                    audioRecService.toggleMute();
+                } else if (e.state === 'UP') {
+                    isMuteKeyDown = false;
+                }
+            }
+
+            // Stop Recording
+            if (e.name === 'RETURN' && e.state === 'DOWN') {
+                listener.kill();
+
+                setTimeout(() => {
+                    if (process.stdin.isTTY) {
+                        process.stdin.off('data', drainInput);
+                        process.stdin.setRawMode(false);
+                    }
+                    resolve();
+                }, 300);
+            }
+        });
+    });
 }

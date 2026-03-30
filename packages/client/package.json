@@ -1,11 +1,13 @@
 {
   "name": "@meeting-summarizer/client",
   "version": "1.0.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "bin": {
     "meeting-cli": "./dist/index.js"
   },
   "scripts": {
-    "build": "rimraf dist && tsc -p tsconfig.build.json",
+    "build": "rimraf dist tsconfig.build.tsbuildinfo && tsc -p tsconfig.build.json",
     "start": "node dist/index.js",
     "dev": "ts-node -r tsconfig-paths/register src/index.ts",
     "test": "vitest run"

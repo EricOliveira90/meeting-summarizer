@@ -1,11 +1,5 @@
 import { NoteTemplate } from "./models";
 
-export interface ObsConfig {
-  ip: string;
-  port: number;
-  password?: string;
-}
-
 export interface ServerConfig {
   ip: string;
   port: number;
@@ -22,6 +16,11 @@ export interface AudioConfig {
   systemId?: string;
 }
 
+export interface AudioRecConfig {
+  inputDeviceIndex?: number;
+  outputDeviceIndex?: number;
+}
+
 export interface ObsidianConfig {
   vaultPath: string;
   notesFolder: string;
@@ -30,9 +29,9 @@ export interface ObsidianConfig {
 }
 
 export interface AppConfig {
-  obs: ObsConfig;
+  audioRec: AudioRecConfig;
   server: ServerConfig;
   paths: PathConfig;
   audio: AudioConfig;
-  obsidian: ObsidianConfig
+  obsidian: ObsidianConfig;
 }

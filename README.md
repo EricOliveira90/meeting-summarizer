@@ -87,6 +87,8 @@ pip install whisperx
 ```env
 PORT=3000
 GEMINI_API_KEY=...
+GEMINI_MODEL=gemini-3-flash-preview
+AI_PROVIDER=gemini
 HUGGING_FACE_TOKEN=hf_...
 API_KEY=your-secure-random-string-for-client-auth
 
@@ -184,6 +186,36 @@ Run this command in a background terminal to link your laptop to the cloud bridg
 ssh -o ServerAliveInterval=60 -L 3000:localhost:8080 bridge-user@xx.xxx.xxx.xxx -N
 
 ```
+
+---
+
+## 🔧 Server API
+
+All endpoints require `x-api-key` header for authentication.
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| `GET` | `/` | Health check — returns `{ status: 'online' }` |
+| `POST` | `/upload` | Upload a file for processing (headers: `x-job-id`, `x-language`, `x-template`) |
+| `GET` | `/jobs` | Paginated job listing — query: `?page=1&limit=20&status=COMPLETED` |
+| `GET` | `/jobs/:id` | Get job details with hydrated transcript/summary text |
+| `DELETE` | `/jobs/:id` | Delete job, cancel if processing, remove all files |
+| `POST` | `/jobs/:id/retry` | Retry a FAILED job from the step that failed (409 if not FAILED) |
+
+### Job Processing Steps
+
+Each job progresses through: `QUEUED` → `EXTRACTING_AUDIO` → `TRANSCRIBING` → `SUMMARIZING` → `DONE`
+
+The `GET /jobs/:id` response includes `currentStep`, `failedStep`, and per-step timestamps.
+
+### AI Provider
+
+The server uses a pluggable AI provider system. Set `AI_PROVIDER` env var (default: `gemini`). To add a new provider, implement the `AIProvider` interface and register it in the factory.
+
+### Resilience
+
+- **Startup Recovery:** Stalled `PROCESSING` jobs are automatically recovered on restart (3-strike policy: resume → retry from scratch → mark FAILED).
+- **Graceful Shutdown:** `SIGINT`/`SIGTERM` pauses the queue and waits for the current job to finish before exiting.
 
 ---
 

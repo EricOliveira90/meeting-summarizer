@@ -2,35 +2,30 @@ import 'dotenv/config';
 import Fastify, { FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
-import path from 'path';
-import fs from 'fs';
-import { randomUUID } from 'crypto';
-import {
-  Job,
-  TranscriptionLanguage,
-  AIPromptTemplate,
-  UploadResponse,
-  ErrorResponse,
-  JobResponse
-} from '@meeting-summarizer/shared';
-import { meetingQueue, getDb } from './services';
-import { parseEnum } from './utils/helper';
-import { JobRecord } from './domain/models';
+import { FileManagerService } from './services/file-manager';
+import { meetingQueue } from './services/queue';
+import { recoverStalledJobs, setupGracefulShutdown } from './services/recovery';
+import { healthRoutes } from './routes/health';
+import { uploadRoutes } from './routes/upload';
+import { jobRoutes } from './routes/jobs';
 
-const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
 const API_KEY = process.env.API_KEY;
 
-// Export the build function
 export function buildServer(): FastifyInstance {
   const server = Fastify({
     logger: false,
     bodyLimit: 1048576 * 500, // 500MB
   });
 
+  // --- Services ---
+  const fileManager = new FileManagerService(process.cwd());
+  server.decorate('fileManager', fileManager);
+
+  // --- Plugins ---
   server.register(cors, { origin: '*' });
   server.register(multipart);
 
-  // --- AUTHENTICATION ---
+  // --- Authentication ---
   server.addHook('onRequest', async (request, reply) => {
     if (API_KEY) {
       const clientKey = request.headers['x-api-key'];
@@ -41,109 +36,10 @@ export function buildServer(): FastifyInstance {
     }
   });
 
-  if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-
-  server.get('/', async () => ({ status: 'online', service: 'Meeting Summarizer Server' }));
-
-  /**
-   * ROUTE: POST /upload
-   */
-  server.post<{ Reply: UploadResponse | ErrorResponse }>('/upload', async (req, reply) => {
-    const parts = req.parts();
-
-    let uploadFilename = '';
-    let savePath = '';
-    const fields: Partial<Record<keyof Job, any>> = {};
-
-    for await (const part of parts) {
-      if (part.type === 'file') {
-        const fileId = randomUUID();
-        uploadFilename = part.filename;
-        const safeFilename = `${fileId}_${part.filename.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
-        savePath = path.join(UPLOAD_DIR, safeFilename);
-
-        await new Promise<void>((resolve, reject) => {
-          const pump = fs.createWriteStream(savePath);
-          part.file.pipe(pump);
-          pump.on('finish', resolve);
-          pump.on('error', reject);
-        });
-
-        fields.id = fileId;
-      } else {
-        fields[part.fieldname as keyof Job] = part.value;
-      }
-    }
-
-    if (!savePath) {
-      return reply.status(400).send({ error: 'No file uploaded' });
-    }
-
-    const minSpeakers = fields.options.minSpeakers ? parseInt(fields.options.minSpeakers) : undefined;
-    const maxSpeakers = fields.options.maxSpeakers ? parseInt(fields.options.maxSpeakers) : undefined;
-
-    const newJob: JobRecord = {
-      id: fields.id,
-      originalFilename: uploadFilename,
-      filePath: savePath,
-      recordedAt: new Date().toISOString(),
-      serverStatus: 'PENDING',
-      options:
-      {
-        language: parseEnum(fields.options.language, TranscriptionLanguage, TranscriptionLanguage.AUTO),
-        template: parseEnum(fields.options.template, AIPromptTemplate, AIPromptTemplate.MEETING),
-        minSpeakers: isNaN(minSpeakers!) ? undefined : minSpeakers,
-        maxSpeakers: isNaN(maxSpeakers!) ? undefined : maxSpeakers
-      }
-
-    };
-
-    const db = await getDb();
-    db.data.jobs.push(newJob);
-    await db.write();
-
-    meetingQueue.push({ jobId: newJob.id, filePath: savePath });
-
-    console.log(`📥 Upload: ${uploadFilename} | [${newJob.options?.language || 'Lang N/A'}, ${newJob.options?.template || 'Template N/A'}]`);
-
-    return { success: true, jobId: newJob.id, message: 'File queued.' };
-  });
-
-  /**
-   * ROUTE: GET /jobs/:id
-   * Returns: Job (Hydrated with text content)
-   */
-  server.get<{ Params: { id: string }, Reply: Job | ErrorResponse }>('/jobs/:id', async (req, reply) => {
-    const db = await getDb();
-    const job = db.data.jobs.find(j => j.id === req.params.id);
-
-    if (!job) return reply.status(404).send({ error: 'Job not found' });
-
-    // Transform JobRecord -> Job
-    // 1. Remove internal paths
-    const { filePath, audioPath, transcriptPath, summaryPath, ...safeJob } = job;
-
-    const responsePayload: JobResponse = { ...safeJob };
-
-    // 2. Hydrate Text Content
-    if (transcriptPath && fs.existsSync(transcriptPath)) {
-      try {
-        responsePayload.transcriptText = await fs.promises.readFile(transcriptPath, 'utf-8');
-      } catch (err) {
-        responsePayload.transcriptError = "File unreadable.";
-      }
-    }
-
-    if (summaryPath && fs.existsSync(summaryPath)) {
-      try {
-        responsePayload.summaryText = await fs.promises.readFile(summaryPath, 'utf-8');
-      } catch (err) {
-        responsePayload.summaryError = "File unreadable.";
-      }
-    }
-
-    return responsePayload;
-  });
+  // --- Routes ---
+  server.register(healthRoutes);
+  server.register(uploadRoutes);
+  server.register(jobRoutes);
 
   return server;
 }
@@ -155,13 +51,23 @@ if (require.main === module) {
 
   const app = buildServer();
 
-  if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+  // Bootstrap directories, recover stalled jobs, then start listening
+  app.fileManager.ensureDirectories().then(async () => {
+    // Recover stalled jobs from previous crash
+    await recoverStalledJobs(
+      (input) => meetingQueue.push(input),
+      app.fileManager
+    );
 
-  app.listen({ port: PORT, host: HOST }, (err) => {
-    if (err) {
-      app.log.error(err);
-      process.exit(1);
-    }
-    console.log(`\n🚀 Server listening at http://${HOST}:${PORT}`);
+    // Setup graceful shutdown
+    setupGracefulShutdown(app, meetingQueue);
+
+    app.listen({ port: PORT, host: HOST }, (err) => {
+      if (err) {
+        app.log.error(err);
+        process.exit(1);
+      }
+      console.log(`\n🚀 Server listening at http://${HOST}:${PORT}`);
+    });
   });
 }

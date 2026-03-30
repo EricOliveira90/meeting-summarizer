@@ -1,10 +1,9 @@
 import { program } from 'commander';
 import inquirer from 'inquirer';
-import { recordCommand, syncCommand } from './commands';
+import { recordCommand } from './commands/record';
+import { syncCommand } from './commands/sync';
+import { getMenuChoices, MenuAction } from './commands/menu';
 import { runSetup, runAudioSetup, configService } from './services';
-
-// Updated Type definitions
-type MenuAction = 'record' | 'sync' | 'settings' | 'audio-setup' | 'exit';
 
 program
   .name('meeting-cli')
@@ -24,7 +23,34 @@ async function ensureConfig(): Promise<void> {
 }
 
 /**
+ * Placeholder for Create Meeting command.
+ * Prompts for meeting details and persists via MeetingService.
+ */
+async function createMeetingCommand(): Promise<void> {
+  console.log('📋 Create Meeting flow (to be wired with full UI prompts)');
+  // This will be wired to MeetingService.create() with inquirer prompts
+}
+
+/**
+ * Placeholder for Jobs hub command.
+ * Shows job list and detail sub-menu.
+ */
+async function jobsCommand(): Promise<void> {
+  console.log('📊 Jobs hub (to be wired with full UI)');
+  // This will be wired to JobManager with inquirer sub-menu
+}
+
+/**
+ * Runs the sync command action (extracted from Commander).
+ */
+async function runSyncAction(): Promise<void> {
+  // Trigger the sync command's action handler
+  await syncCommand.parseAsync(['node', 'cli', 'sync']);
+}
+
+/**
  * The main interactive loop of the application.
+ * Menu items are in meeting lifecycle order.
  */
 async function mainMenuLoop() {
   // eslint-disable-next-line no-constant-condition
@@ -36,13 +62,7 @@ async function mainMenuLoop() {
         type: 'list',
         name: 'action',
         message: 'What would you like to do?',
-        choices: [
-          { name: 'Start Recording 🔴', value: 'record' },
-          { name: 'Sync & Summarize 🧠', value: 'sync' },
-          { name: 'Audio Setup 🎙️', value: 'audio-setup' },
-          { name: 'Settings ⚙️', value: 'settings' },
-          { name: 'Exit 🚪', value: 'exit' }
-        ]
+        choices: getMenuChoices()
       }
     ]);
 
@@ -53,13 +73,21 @@ async function mainMenuLoop() {
 
     try {
       switch (action) {
+        case 'create-meeting':
+          await ensureConfig();
+          await createMeetingCommand();
+          break;
         case 'record':
           await ensureConfig();
           await recordCommand();
           break;
+        case 'jobs':
+          await ensureConfig();
+          await jobsCommand();
+          break;
         case 'sync':
           await ensureConfig();
-          await syncCommand();
+          await runSyncAction();
           break;
         case 'audio-setup':
           await ensureConfig();
@@ -109,7 +137,7 @@ program
   .description('Upload and process a recording')
   .action(async () => {
     await ensureConfig();
-    await syncCommand();
+    await runSyncAction();
   });
 
 program

@@ -1,5 +1,13 @@
 export type JobState = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
 
+export enum JobStep {
+  QUEUED = 'QUEUED',
+  EXTRACTING_AUDIO = 'EXTRACTING_AUDIO',
+  TRANSCRIBING = 'TRANSCRIBING',
+  SUMMARIZING = 'SUMMARIZING',
+  DONE = 'DONE'
+}
+
 export enum TranscriptionLanguage {
   AUTO = 'auto',
   ENGLISH = 'en',
@@ -33,6 +41,11 @@ export interface ErrorResponse {
   error: string;
 }
 
+export interface StepTimestamp {
+  startedAt: string;
+  completedAt?: string;
+}
+
 export interface Job {
   id: string;
   originalFilename: string;
@@ -40,6 +53,8 @@ export interface Job {
   recordedAt: string;
   options?: UploadOptions;
   error?: string;
+  currentStep?: JobStep;
+  failedStep?: JobStep;
 }
 
 export interface JobResponse extends Job {
@@ -47,4 +62,5 @@ export interface JobResponse extends Job {
   summaryText?: string;
   transcriptError?: string;
   summaryError?: string;
+  steps?: Partial<Record<JobStep, StepTimestamp>>;
 }

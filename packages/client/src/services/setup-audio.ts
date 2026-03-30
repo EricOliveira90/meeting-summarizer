@@ -1,58 +1,66 @@
+import { spawn } from 'child_process';
 import inquirer from 'inquirer';
-import { obsService, configService } from '.';
+import { AudioRecService, configService } from '.';
 
 export async function runAudioSetup() {
-  console.log('Connecting to OBS to fetch audio devices...');
-  const connected = await obsService.connect();
+  console.log('Fetching audio devices via audio-rec...');
   
-  if (!connected) {
-    console.error('❌ Could not connect to OBS. Please check your OBS WebSocket settings in config.');
-    return;
-  }
+  const audioRecService = new AudioRecService(spawn);
 
   try {
-    const microphones = await obsService.getAvailableMicrophones();
-    const speakers = await obsService.getAvailableAudioOutputs();
+    const { inputDevices, outputDevices } = await audioRecService.getDevices();
 
-    if (microphones.length === 0 || speakers.length === 0) {
-        console.warn('⚠️ Warning: Could not find audio devices. Is OBS running and are sources available?');
+    if (inputDevices.length === 0 && outputDevices.length === 0) {
+      console.warn('⚠️ No audio devices found. Is audio-rec installed and in PATH?');
+      return;
     }
 
-    // Get current audio config using the new 'audio' key
-    const currentAudio = configService.get('audio');
+    console.log('⚠️ Note: Device indices may change if devices are plugged/unplugged.');
+
+    // Get current audio-rec config
+    const currentConfig = configService.get('audioRec');
+
+    const inputChoices = inputDevices.map(d => ({
+      name: `${d.name} (index: ${d.index}, ${d.sampleRate}Hz)${d.isDefault ? ' [DEFAULT]' : ''}`,
+      value: d.index,
+    }));
+
+    const outputChoices = outputDevices.map(d => ({
+      name: `${d.name} (index: ${d.index}, ${d.sampleRate}Hz)${d.isDefault ? ' [DEFAULT]' : ''}`,
+      value: d.index,
+    }));
+
+    // Add "Use system default" option
+    inputChoices.unshift({ name: '🔧 Use system default', value: -1 });
+    outputChoices.unshift({ name: '🔧 Use system default', value: -1 });
 
     const answers = await inquirer.prompt([
       {
         type: 'list',
-        name: 'micId',
-        message: 'Select Microphone to Record:',
-        choices: microphones,
-        default: currentAudio.micId
+        name: 'inputDeviceIndex',
+        message: 'Select Microphone (Input Device):',
+        choices: inputChoices,
+        default: currentConfig.inputDeviceIndex ?? -1,
       },
       {
         type: 'list',
-        name: 'systemId',
-        message: 'Select System/Desktop Audio to Record:',
-        choices: speakers,
-        default: currentAudio.systemId
-      }
+        name: 'outputDeviceIndex',
+        message: 'Select System Audio (Output Device):',
+        choices: outputChoices,
+        default: currentConfig.outputDeviceIndex ?? -1,
+      },
     ]);
 
-    // Save using the new 'audio' key and AudioConfig interface
-    configService.set('audio', {
-      micId: answers.micId,
-      systemId: answers.systemId
+    // Save config — use undefined for "system default" (-1)
+    configService.set('audioRec', {
+      inputDeviceIndex: answers.inputDeviceIndex === -1 ? undefined : answers.inputDeviceIndex,
+      outputDeviceIndex: answers.outputDeviceIndex === -1 ? undefined : answers.outputDeviceIndex,
     });
 
-    console.log('Setting up OBS Scene "Meeting Recording"...');
-    await obsService.setupScene(answers.micId, answers.systemId);
-    
-    console.log('✅ Audio configuration saved and OBS scene updated!');
+    console.log('✅ Audio configuration saved!');
 
   } catch (error) {
     console.error('❌ Error during audio setup:', error);
-  } finally {
-    await obsService.disconnect();
   }
 }
 

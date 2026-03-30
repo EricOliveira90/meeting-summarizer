@@ -6,7 +6,6 @@ export async function runSetup() {
   
   // Fetch current configs using the new typed getter
   const currentServer = configService.get('server');
-  const currentObs = configService.get('obs');
   const currentPaths = configService.get('paths');
   
   const answers = await inquirer.prompt([
@@ -28,26 +27,6 @@ export async function runSetup() {
       name: 'apikey',
       message: 'Server API Key:',
       default: currentServer.apiKey,
-    },
-
-    // --- OBS CONFIG ---
-    {
-      type: 'input',
-      name: 'obsIp',
-      message: 'OBS WebSocket IP:',
-      default: currentObs.ip,
-    },
-    {
-      type: 'number',
-      name: 'obsPort',
-      message: 'OBS WebSocket Port:',
-      default: currentObs.port,
-    },
-    {
-      type: 'password',
-      name: 'obsPassword',
-      message: 'OBS WebSocket Password (optional):',
-      default: currentObs.password,
     },
 
     // --- PATHS CONFIG ---
@@ -74,14 +53,7 @@ export async function runSetup() {
     apiKey: answers.apiKey
   });
 
-  // 2. Save OBS Config
-  configService.set('obs', {
-      ip: answers.obsIp,
-      port: answers.obsPort,
-      password: answers.obsPassword
-  });
-  
-  // 3. Save Paths Config
+  // 2. Save Paths Config
   configService.set('paths', {
     output: answers.outputPath,
     obsidianVault: answers.obsidianVault || undefined

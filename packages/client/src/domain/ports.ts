@@ -1,5 +1,5 @@
 import { UploadOptions, UploadResponse, Job, JobResponse } from "@meeting-summarizer/shared";
-import { ClientJob, ClientJobStatus, HealthStatus } from "./models";
+import { ClientJob, ClientJobStatus, HealthStatus, Meeting, MeetingStatus, CreateMeetingInput } from "./models";
 
 export interface IIngestion {
   scanDirectory(): Promise<void>;
@@ -58,4 +58,13 @@ export interface IFileManager {
   fileExists(filePath: string): Promise<boolean>;
   joinPathsInProjectFolder(...parts: string[]): string;
   joinPaths(...parts: string[]): string;
+}
+
+export interface IMeetingService {
+  create(input: CreateMeetingInput): Promise<Meeting>;
+  list(): Promise<Meeting[]>;
+  getById(id: string): Promise<Meeting | undefined>;
+  update(id: string, fields: Partial<CreateMeetingInput>): Promise<Meeting>;
+  updateStatus(id: string, status: MeetingStatus): Promise<void>;
+  linkToJob(meetingId: string, jobId: string): Promise<void>;
 }

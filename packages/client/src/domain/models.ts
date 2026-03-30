@@ -1,4 +1,40 @@
-import { Job } from "@meeting-summarizer/shared";
+import { Job, AIPromptTemplate, TranscriptionLanguage } from "@meeting-summarizer/shared";
+
+// ── Meeting Entity ──
+
+export enum MeetingStatus {
+    CREATED = 'CREATED',
+    RECORDING = 'RECORDING',
+    RECORDED = 'RECORDED',
+    LINKED = 'LINKED'
+}
+
+export interface Meeting {
+    id: string;
+    title: string;
+    scheduledAt: string;
+    language: TranscriptionLanguage;
+    aiTemplate: AIPromptTemplate;
+    noteTemplate?: NoteTemplate;
+    attendees: string[];
+    minSpeakers?: number;
+    maxSpeakers?: number;
+    status: MeetingStatus;
+    jobId?: string;
+    createdAt: string;
+}
+
+export interface CreateMeetingInput {
+    title: string;
+    scheduledAt?: string;
+    language?: TranscriptionLanguage;
+    aiTemplate?: AIPromptTemplate;
+    attendees?: string[];
+    minSpeakers?: number;
+    maxSpeakers?: number;
+}
+
+// ── Note Templates ──
 
 export enum NoteTemplate {
     STD_MEETING = 'Internal Meeting',   // Standard minutes, action items
@@ -22,7 +58,8 @@ export interface ClientJob extends Omit<Job, 'serverStatus'> {
     filePath: string;
     clientStatus: ClientJobStatus;
     retryCount: number;
-    noteTemplate?: NoteTemplate
+    noteTemplate?: NoteTemplate;
+    meetingId?: string;
 }
 
 export class SyncError extends Error {

@@ -2,11 +2,12 @@ import { Low } from 'lowdb';
 import { JSONFile } from 'lowdb/node';
 import path from 'path';
 import { randomUUID } from 'crypto';
-import { IClientDb, IFileManager, ClientJob, ClientJobStatus } from '../domain';
+import { IClientDb, IFileManager, ClientJob, ClientJobStatus, Meeting, MeetingStatus } from '../domain';
 import { UploadOptions } from '@meeting-summarizer/shared';
 
 interface ClientSchema {
   jobs: ClientJob[];
+  meetings: Meeting[];
 }
 
 export class LowDB implements IClientDb {
@@ -18,18 +19,22 @@ export class LowDB implements IClientDb {
     this.fs = fileManager
     const finalPath = dbPath || path.join(process.cwd(), 'client-db.json');
     const adapter = new JSONFile<ClientSchema>(finalPath);
-    this.db = new Low(adapter, { jobs: [] });
+    this.db = new Low(adapter, { jobs: [], meetings: [] });
     this.ready = this.init();
   }
 
   private async init() {
     try {
       await this.db.read();
-      this.db.data ||= { jobs: [] };
+      this.db.data ||= { jobs: [], meetings: [] };
+      // Ensure meetings array exists for DBs created before this feature
+      if (!this.db.data.meetings) {
+        this.db.data.meetings = [];
+      }
       await this.db.write();
     } catch (error) {
       console.error('Failed to initialize local database:', error);
-      this.db.data = { jobs: [] };
+      this.db.data = { jobs: [], meetings: [] };
     }
   }
 
@@ -170,5 +175,44 @@ export class LowDB implements IClientDb {
   public async getJobByPath(filePath: string): Promise<ClientJob | undefined> {
     await this.ready;
     return this.db.data.jobs.find(j => j.filePath === filePath);
+  }
+
+  // ── Meeting CRUD ──
+
+  public async addMeeting(meeting: Meeting): Promise<void> {
+    await this.ready;
+    this.db.data.meetings.push(meeting);
+    await this.db.write();
+  }
+
+  public async getAllMeetings(): Promise<Meeting[]> {
+    await this.ready;
+    return [...this.db.data.meetings].sort((a, b) =>
+      new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime()
+    );
+  }
+
+  public async getMeetingById(id: string): Promise<Meeting | undefined> {
+    await this.ready;
+    return this.db.data.meetings.find(m => m.id === id);
+  }
+
+  public async updateMeeting(id: string, fields: Partial<Meeting>): Promise<Meeting> {
+    await this.ready;
+    const meeting = this.db.data.meetings.find(m => m.id === id);
+    if (!meeting) throw new Error(`Meeting not found: ${id}`);
+
+    Object.assign(meeting, fields);
+    await this.db.write();
+    return { ...meeting };
+  }
+
+  public async updateMeetingStatus(id: string, status: MeetingStatus): Promise<void> {
+    await this.ready;
+    const meeting = this.db.data.meetings.find(m => m.id === id);
+    if (meeting) {
+      meeting.status = status;
+      await this.db.write();
+    }
   }
 }

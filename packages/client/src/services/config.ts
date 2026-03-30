@@ -9,11 +9,7 @@ dotenv.config({ path: path.join(__dirname, '../../.env') });
 
 // Defaults
 const defaults: AppConfig = {
-  obs: {
-    ip: process.env.OBS_IP || '127.0.0.1',
-    port: Number(process.env.OBS_PORT) || 4455,
-    password: process.env.OBS_PASSWORD || ''
-  },
+  audioRec: {},
   server: {
     ip: process.env.SERVER_IP || '127.0.0.1',
     port: Number(process.env.SERVER_PORT) || 3000,

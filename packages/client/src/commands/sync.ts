@@ -18,7 +18,7 @@ export const syncCommand = new Command('sync')
       const fs = new NodeFileSystem(path.resolve(__dirname, '..', '..'))
       const db = new LowDB(fs);
       const ingestion = new IngestionService(db);
-      const noteService = new NoteService(fs, );
+      const noteService = new NoteService(fs, configService.get('obsidian'));
 
       // 2. Inject them into the Manager
       const syncManager = new SyncManager(apiService, db, noteService, ingestion, fs);

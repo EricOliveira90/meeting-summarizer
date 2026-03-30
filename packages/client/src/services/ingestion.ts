@@ -1,8 +1,10 @@
 import fs from 'fs';
 import path from 'path';
 import { IClientDb, IIngestion } from '../domain/ports';
-import { configService } from './config'; // Assuming configService is exported from your services index
+import { Meeting, ClientJob, NoteTemplate } from '../domain/models';
+import { configService } from './config';
 import { promptForMeetingTitle, promptForJobConfig } from '../ui/prompts';
+import { mapAITemplateToNoteTemplate } from './templateMapper';
 
 interface NodeError extends Error {
     code?: string;
@@ -77,6 +79,44 @@ export class IngestionService implements IIngestion {
 
         // 5. Update Database with selected options
         await this.db.updateOptions(job.id, config);
+    }
+
+    /**
+     * Ingests a file that is linked to a pre-created meeting.
+     * Pulls all config from the meeting entity — no user prompts.
+     * Returns the created job with meetingId and noteTemplate set.
+     */
+    public async ingestFileWithMeeting(oldPath: string, meeting: Meeting): Promise<ClientJob | null> {
+        // 1. Rename using meeting title (no prompt)
+        const newPath = this.renameWithRetry(oldPath, meeting.title);
+        if (!newPath) {
+            console.error('❌ Skipping ingestion due to file rename failure.');
+            return null;
+        }
+
+        // 2. Extract date and register in DB
+        const originalFilename = path.basename(oldPath);
+        const recordingDate = this.extractDateFromFilename(originalFilename);
+        const job = await this.db.addRecording(newPath, recordingDate);
+
+        // 3. Build upload options from meeting config (no prompts)
+        const options = {
+            language: meeting.language,
+            template: meeting.aiTemplate,
+            minSpeakers: meeting.minSpeakers,
+            maxSpeakers: meeting.maxSpeakers
+        };
+        await this.db.updateOptions(job.id, options);
+
+        // 4. Map AI template to note template
+        const noteTemplate = mapAITemplateToNoteTemplate(meeting.aiTemplate);
+
+        // Return enriched job info for the caller to persist meetingId and noteTemplate
+        return {
+            ...job,
+            meetingId: meeting.id,
+            noteTemplate
+        };
     }
 
     /**
