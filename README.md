@@ -15,6 +15,29 @@ This project solves the "Work Laptop" restriction problem using a **Reverse SSH 
 2. **Work Laptop (Client):** Connects *outbound* to the same VM to access that port locally.
 3. **Result:** The Client talks to `localhost:3000`, and traffic is encrypted end-to-end.
 
+### Monorepo Structure
+
+```
+meeting-summarizer/
+├── packages/
+│   ├── client/          # CLI tool (recording, sync, meeting management)
+│   │   ├── src/
+│   │   │   ├── commands/    # CLI commands (record, sync, createMeeting, jobsHub)
+│   │   │   ├── domain/     # Models, ports, configs
+│   │   │   ├── services/   # Business logic (db, api, jobManager, meeting, note)
+│   │   │   ├── ui/         # UI helpers (prompts, tableFormatter)
+│   │   │   └── utils/      # File system abstraction
+│   │   └── tests/
+│   ├── server/          # Processing server (WhisperX + Gemini)
+│   │   ├── src/
+│   │   │   ├── routes/     # REST API endpoints
+│   │   │   ├── services/   # Queue, AI provider, transcriber, recovery
+│   │   │   └── domain/     # Server models
+│   │   └── tests/
+│   └── shared/          # Shared types (Job, UploadOptions, enums)
+└── vitest.config.ts     # Monorepo test configuration
+```
+
 ---
 
 ## 🚀 Prerequisites
@@ -135,7 +158,7 @@ pm2 save
 
 ## 💼 Phase 3: The Client (Work Laptop)
 
-This CLI tool records the screen/audio and syncs the data.
+This CLI tool records the screen/audio, manages meetings, and syncs the data.
 
 ### 1. Installation
 
@@ -247,27 +270,146 @@ The server uses a pluggable AI provider system. Set `AI_PROVIDER` env var (defau
 
 ## ⏯️ Usage Guide
 
-### 1. Recording a Meeting
+### Main Menu
 
-1. Run the CLI: `npm start` (in `packages/client`).
-2. Select **🔴 Start Recording**.
-3. If pre-created meetings exist, select one from the picker — or choose **"Record without meeting"** for an ad-hoc recording.
-4. Enter an optional title (or press Enter to skip — you can name it after recording).
-5. Recording starts via `audio-rec` (WAV format, professional quality).
-6. **Hotkeys during recording:**
+The CLI presents an interactive menu following the meeting lifecycle:
+
+```
+=== Meeting Transcriber CLI ===
+
+? What would you like to do?
+❯ Create Meeting 📋      — Pre-configure a meeting before recording
+  Start Recording 🔴     — Record audio from your devices
+  Jobs 📊                — Browse, inspect, retry, and manage processing jobs
+  Sync & Summarize 🧠    — Upload recordings and fetch results
+  Audio Setup 🎙️         — Configure recording devices
+  Settings ⚙️            — Server connection, paths, Obsidian vault
+  Exit 🚪
+```
+
+### 1. Creating a Meeting (Pre-Configuration)
+
+Pre-create meetings with all configuration set before recording:
+
+1. Select **📋 Create Meeting** from the menu.
+2. Enter a **Meeting Title** (required).
+3. Set a **Scheduled Date/Time** (or press Enter for now).
+4. Choose **Transcription Language**: `auto`, `en`, `pt`, or `es`.
+5. Choose **AI Summary Template**: `meeting` (action items), `training` (key concepts), or `summary` (brief overview).
+6. Optionally add **Attendees** (comma-separated).
+7. Optionally set **Min/Max Speakers** for better diarization accuracy.
+8. After creation, you'll be asked **"Start recording now?"** — answering yes chains directly into the recording workflow with the meeting pre-selected.
+
+### 2. Recording a Meeting
+
+1. Select **🔴 Start Recording** from the menu.
+2. If pre-created meetings exist, select one from the picker — or choose **"Record without meeting"** for an ad-hoc recording.
+3. Enter an optional title (or press Enter to skip — you can name it after recording).
+4. Recording starts via `audio-rec` (WAV format, professional quality).
+5. **Hotkeys during recording:**
    * `M`: Toggle Microphone Mute/Unmute.
    * `ENTER`: Stop Recording.
-7. Real-time feedback shows audio state, processing progress, and completion info.
-8. After stopping, if you skipped the title, you'll be prompted to name the recording.
-9. Files are saved as `YYYY-MM-DD_HH-mm_Title.wav` in your configured output directory.
+6. Real-time feedback shows audio state, processing progress, and completion info.
+7. After stopping, if you skipped the title, you'll be prompted to name the recording.
+8. Files are saved as `YYYY-MM-DD_HH-mm_Title.wav` in your configured output directory.
 
-### 2. Syncing & Transcribing
+### 3. Syncing & Transcribing
 
 1. Ensure your SSH Tunnel is running.
 2. Select **🧠 Sync & Summarize**.
-3. Choose the recording from the list.
-4. Select Template: **Meeting** (Action Items) or **Training** (Concepts).
-5. The Client uploads the audio -> Server processes it -> Client downloads the Markdown.
+3. The sync process runs automatically:
+   - **Ingests** new recordings from your output directory
+   - **Checks** server for completed jobs
+   - **Downloads** finished summaries and transcripts
+   - **Uploads** pending recordings with their configuration
+4. Results are saved as `.txt` files locally and as Obsidian notes in your vault.
+
+### 4. Managing Jobs (Jobs Hub)
+
+The Jobs Hub provides full visibility into your processing pipeline:
+
+1. Select **📊 Jobs** from the menu.
+2. View all jobs in a formatted table with status indicators:
+
+```
+  ┌──────────┬────────────────────────────────┬────────────────┬────────────┐
+  │ID        │Filename                        │Status          │Recorded    │
+  ├──────────┼────────────────────────────────┼────────────────┼────────────┤
+  │a1b2c3d4  │sprint-planning.wav             │✅ COMPLETED     │2026-03-29  │
+  │e5f6g7h8  │standup-daily.wav               │⏳ PROCESSING    │2026-03-29  │
+  │i9j0k1l2  │training-session.wav            │❌ FAILED        │2026-03-28  │
+  └──────────┴────────────────────────────────┴────────────────┴────────────┘
+```
+
+3. Select a job to see details and **context-aware actions**:
+   - **✅ COMPLETED jobs:** View Summary, View Transcript, Regenerate Obsidian Note (with different template)
+   - **❌ FAILED / 💀 ABANDONED jobs:** Retry (resets for next sync)
+   - **⏸️ WAITING jobs:** Cancel (removes from upload queue)
+   - **⏳ PROCESSING jobs:** View-only (no actions available)
+
+4. **Status indicators:**
+   | Emoji | Status | Meaning |
+   |-------|--------|---------|
+   | ✅ | COMPLETED | Successfully processed, summary available |
+   | ⏳ | PROCESSING | Server is working on it |
+   | 📤 | UPLOADING | Currently being uploaded |
+   | ⏸️ | WAITING | Queued for upload on next sync |
+   | ⬇️ | READY | Server finished, waiting for download |
+   | ❌ | FAILED | Error occurred, can be retried |
+   | 💀 | ABANDONED | Max retries exceeded or fatal error |
+   | 🗑️ | DELETED | Local file was removed |
+
+### 5. CLI Commands (Non-Interactive)
+
+For scripting or quick access, use direct CLI commands:
+
+```bash
+# Start the interactive menu (default)
+npm start
+
+# Record immediately (skips menu)
+npx ts-node src/index.ts record
+
+# Run sync directly
+npx ts-node src/index.ts sync
+
+# Open settings wizard
+npx ts-node src/index.ts settings
+
+# Configure audio devices
+npx ts-node src/index.ts audio
+```
+
+---
+
+## 🧪 Testing
+
+The project uses **Vitest** for testing across the monorepo.
+
+```bash
+# Run all tests
+npx vitest run
+
+# Run client tests only
+npx vitest run packages/client/tests/
+
+# Run server tests only
+npx vitest run packages/server/tests/
+
+# Run a specific test file
+npx vitest run packages/client/tests/commands/createMeeting.test.ts
+
+# Watch mode
+npx vitest
+```
+
+### Test Coverage
+
+| Package | Test Files | Tests | Coverage Areas |
+|---------|-----------|-------|----------------|
+| **Client** | 24 | 184 | Commands (record, createMeeting, jobsHub, sync), Services (db, api, jobManager, meeting, note, ingestion, syncManager), UI (tableFormatter, prompts) |
+| **Server** | 7 | ~50 | Routes (upload, jobs, health), Services (queue, aiProvider, recovery, fileManager) |
+| **Shared** | 1 | ~5 | Type exports |
 
 ---
 
@@ -282,3 +424,5 @@ The server uses a pluggable AI provider system. Set `AI_PROVIDER` env var (defau
 | **No audio devices found** | `audio-rec` can't detect devices. | Check that audio devices are connected. Run `audio-rec devices` to verify. |
 | **Device indices changed** | Devices plugged/unplugged. | Re-run **Audio Setup 🎙️** from the menu to reconfigure device indices. |
 | **Transcription Error** | VRAM / CUDA. | Ensure Home PC GPU drivers are updated and `whisperx` is installed correctly. |
+| **Job stuck in FAILED** | Transient network error. | Use **Jobs 📊** → select the job → **Retry**. Or run Sync again (auto-retries up to 3 times). |
+| **Wrong Obsidian note template** | Selected wrong template during sync. | Use **Jobs 📊** → select completed job → **Regenerate Obsidian Note** with the correct template. |
