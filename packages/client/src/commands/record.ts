@@ -46,7 +46,7 @@ export function buildRecordingFilename(title: string | undefined, date: Date): s
  * 
  * @param meetingService Optional meeting service for meeting picker integration
  */
-export async function recordCommand(meetingService?: IMeetingService) {
+export async function recordCommand(meetingService?: IMeetingService, preSelectedMeetingId?: string) {
     console.log('Initializing recording workflow...');
 
     const audioRecService = new AudioRecService(spawn);
@@ -54,31 +54,40 @@ export async function recordCommand(meetingService?: IMeetingService) {
     let selectedMeeting: Meeting | undefined;
     let meetingPicker: MeetingPicker | undefined;
 
-    // ── Phase 1: Determine title (meeting picker or on-the-fly) ──
+    // ── Phase 1: Determine title (pre-selected, meeting picker, or on-the-fly) ──
 
     if (meetingService) {
         meetingPicker = new MeetingPicker(meetingService);
-        const choices = await meetingPicker.getPickerChoices();
 
-        // Only show picker if there are CREATED meetings (choices > 1 means meetings + quick start)
-        const hasCreatedMeetings = choices.length > 1;
-
-        if (hasCreatedMeetings) {
-            const { selectedValue } = await inquirer.prompt([{
-                type: 'list',
-                name: 'selectedValue',
-                message: 'Select a meeting to record:',
-                choices: choices.map(c => ({ name: c.name, value: c.value })),
-            }]);
-
-            if (selectedValue !== QUICK_START_VALUE) {
-                // User selected a pre-created meeting
-                selectedMeeting = await meetingPicker.selectMeeting(selectedValue);
-                if (selectedMeeting) {
-                    title = selectedMeeting.title;
-                }
+        // If a meeting ID was pre-selected (e.g., from Create Meeting chain), skip the picker
+        if (preSelectedMeetingId) {
+            selectedMeeting = await meetingPicker.selectMeeting(preSelectedMeetingId);
+            if (selectedMeeting) {
+                title = selectedMeeting.title;
             }
-            // else: fall through to on-the-fly flow
+        } else {
+            const choices = await meetingPicker.getPickerChoices();
+
+            // Only show picker if there are CREATED meetings (choices > 1 means meetings + quick start)
+            const hasCreatedMeetings = choices.length > 1;
+
+            if (hasCreatedMeetings) {
+                const { selectedValue } = await inquirer.prompt([{
+                    type: 'list',
+                    name: 'selectedValue',
+                    message: 'Select a meeting to record:',
+                    choices: choices.map(c => ({ name: c.name, value: c.value })),
+                }]);
+
+                if (selectedValue !== QUICK_START_VALUE) {
+                    // User selected a pre-created meeting
+                    selectedMeeting = await meetingPicker.selectMeeting(selectedValue);
+                    if (selectedMeeting) {
+                        title = selectedMeeting.title;
+                    }
+                }
+                // else: fall through to on-the-fly flow
+            }
         }
     }
 

@@ -1,9 +1,20 @@
 import { program } from 'commander';
 import inquirer from 'inquirer';
+import path from 'path';
 import { recordCommand } from './commands/record';
-import { syncCommand } from './commands/sync';
+import { syncCommand, runSync } from './commands/sync';
+import { createMeetingCommand } from './commands/createMeeting';
+import { jobsHubCommand } from './commands/jobsHub';
 import { getMenuChoices, MenuAction } from './commands/menu';
 import { runSetup, runAudioSetup, configService } from './services';
+import { ApiService } from './services/api';
+import { LowDB } from './services/db';
+import { IngestionService } from './services/ingestion';
+import { MeetingService } from './services/meeting';
+import { JobManager } from './services/jobManager';
+import { NoteService } from './services/note';
+import { SyncManager } from './services/syncManager';
+import { NodeFileSystem } from './utils/nodeFS';
 
 program
   .name('meeting-cli')
@@ -23,36 +34,25 @@ async function ensureConfig(): Promise<void> {
 }
 
 /**
- * Placeholder for Create Meeting command.
- * Prompts for meeting details and persists via MeetingService.
- */
-async function createMeetingCommand(): Promise<void> {
-  console.log('📋 Create Meeting flow (to be wired with full UI prompts)');
-  // This will be wired to MeetingService.create() with inquirer prompts
-}
-
-/**
- * Placeholder for Jobs hub command.
- * Shows job list and detail sub-menu.
- */
-async function jobsCommand(): Promise<void> {
-  console.log('📊 Jobs hub (to be wired with full UI)');
-  // This will be wired to JobManager with inquirer sub-menu
-}
-
-/**
- * Runs the sync command action (extracted from Commander).
- */
-async function runSyncAction(): Promise<void> {
-  // Trigger the sync command's action handler
-  await syncCommand.parseAsync(['node', 'cli', 'sync']);
-}
-
-/**
  * The main interactive loop of the application.
  * Menu items are in meeting lifecycle order.
+ * 
+ * Uses a singleton factory pattern: all shared services are instantiated once
+ * at the top of the loop and passed into each command as function parameters.
+ * This prevents multiple LowDB instances from reading/writing the same JSON file.
  */
 async function mainMenuLoop() {
+  // ── Singleton Service Factory ──
+  // All services created once, shared across all commands in this session.
+  const fs = new NodeFileSystem(path.resolve(__dirname, '..'));
+  const db = new LowDB(fs);
+  const apiService = new ApiService();
+  const ingestion = new IngestionService(db);
+  const meetingService = new MeetingService(db);
+  const jobManager = new JobManager(db, fs);
+  const noteService = new NoteService(fs, configService.get('obsidian'));
+  const syncManager = new SyncManager(apiService, db, noteService, ingestion, fs);
+
   // eslint-disable-next-line no-constant-condition
   while (true) {
     console.log(''); // Visual spacing
@@ -73,21 +73,25 @@ async function mainMenuLoop() {
 
     try {
       switch (action) {
-        case 'create-meeting':
+        case 'create-meeting': {
           await ensureConfig();
-          await createMeetingCommand();
+          const result = await createMeetingCommand(meetingService);
+          if (result.chainToRecord) {
+            await recordCommand(meetingService, result.meetingId);
+          }
           break;
+        }
         case 'record':
           await ensureConfig();
-          await recordCommand();
+          await recordCommand(meetingService);
           break;
         case 'jobs':
           await ensureConfig();
-          await jobsCommand();
+          await jobsHubCommand(jobManager, noteService, fs);
           break;
         case 'sync':
           await ensureConfig();
-          await runSyncAction();
+          await runSync(syncManager);
           break;
         case 'audio-setup':
           await ensureConfig();
@@ -98,6 +102,15 @@ async function mainMenuLoop() {
           break;
       }
     } catch (error) {
+      // Ctrl+C graceful handling: inquirer throws error on Ctrl+C
+      if (error && typeof error === 'object' && 'isTtyError' in error) {
+        continue; // Silently return to menu
+      }
+      // Also handle generic "prompt was closed" errors
+      const errMsg = error instanceof Error ? error.message : String(error);
+      if (errMsg.includes('prompt') && (errMsg.includes('closed') || errMsg.includes('cancel'))) {
+        continue; // Silently return to menu
+      }
       console.error('❌ An unexpected error occurred:', error);
     }
   }
@@ -137,7 +150,8 @@ program
   .description('Upload and process a recording')
   .action(async () => {
     await ensureConfig();
-    await runSyncAction();
+    // Standalone sync creates its own services via syncCommand
+    await syncCommand.parseAsync(['node', 'cli', 'sync']);
   });
 
 program

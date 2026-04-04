@@ -1,0 +1,11 @@
+{
+  "codec": "pcm",
+  "duration": -1,
+  "file_path": "C:\\Code\\meeting-summarizer\\packages\\client\\recordings\\2026-04-03_17-45_test1.wav",
+  "file_size_mb": "1.23",
+  "filename": "2026-04-03_17-45_test1.wav",
+  "format": "wav",
+  "message": "Recording completed successfully",
+  "session_id": "rec-20260403_174517",
+  "status": "completed"
+}

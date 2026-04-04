@@ -9,6 +9,8 @@ export interface TranscriptionResult {
 
 export interface TranscribeOptions {
   language?: string;
+  model?: string;
+  batchSize?: number;
   minSpeakers?: number;
   maxSpeakers?: number;
 }
@@ -38,12 +40,13 @@ export class TranscriptionService {
 
       console.log(`🎙️  Spawning WhisperX: ${parsedPath.base}`);
       
-      // Build Arguments
+      // Build Arguments (use model from options if provided, otherwise default)
+      const model = options.model || WHISPER_MODEL;
       const args = [
         this.scriptPath,
         audioPath,
-        '--model', WHISPER_MODEL,
-        '--batch_size', BATCH_SIZE,
+        '--model', model,
+        '--batch_size', (options.batchSize ?? parseInt(BATCH_SIZE)).toString(),
         '--hf_token', this.hfToken || '', 
         '--output_file', outputTxtPath
       ];

@@ -67,7 +67,7 @@ export class IngestionService implements IIngestion {
             return;
         }
 
-        // Extract the date from the original OBS filename before saving to the database
+        // Extract the date from the original filename before saving to the database
         const originalFilename = path.basename(oldPath);
         const recordingDate = this.extractDateFromFilename(originalFilename);
 
@@ -120,13 +120,13 @@ export class IngestionService implements IIngestion {
     }
 
     /**
-     * Attempts to parse standard OBS filenames (e.g., '2026-02-27 10-02-23.mkv')
+     * Attempts to parse timestamped filenames (e.g., '2026-02-27 10-02-23.mkv')
      * Returns an ISO-8601 string. Falls back to current time if pattern isn't matched.
      */
     private extractDateFromFilename(filename: string): string {
         // Regex looks for "YYYY-MM-DD HH-mm-ss"
-        const obsDatePattern = /(\d{4}-\d{2}-\d{2})\s(\d{2})-(\d{2})-(\d{2})/;
-        const match = filename.match(obsDatePattern);
+        const datePattern = /(\d{4}-\d{2}-\d{2})\s(\d{2})-(\d{2})-(\d{2})/;
+        const match = filename.match(datePattern);
 
         if (match) {
             const [_, datePart, hour, minute, second] = match;
@@ -139,7 +139,7 @@ export class IngestionService implements IIngestion {
             }
         }
 
-        // Fallback for manually dropped-in files that don't match the OBS pattern
+        // Fallback for files that don't match the expected timestamp pattern
         return new Date().toISOString();
     }
 
@@ -164,7 +164,7 @@ export class IngestionService implements IIngestion {
         const newFilename = `${dateStr}_${timeStr}_${sanitizedTitle}${ext}`;
         const newPath = path.join(dir, newFilename);
 
-        // Retry loop for renaming (Wait for OBS/System to release lock)
+        // Retry loop for renaming (Wait for system to release file lock)
         const maxAttempts = 3;
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
             try {

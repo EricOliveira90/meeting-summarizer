@@ -50,7 +50,7 @@ export async function runSetup() {
   configService.set('server', {
     ip: answers.serverIp,
     port: answers.serverPort,
-    apiKey: answers.apiKey
+    apiKey: answers.apikey
   });
 
   // 2. Save Paths Config

@@ -1,0 +1,26 @@
+# Project Rules
+
+## CLI Command Safety
+
+### GitHub CLI (`gh`) — Long Body Content
+When using `gh issue comment`, `gh issue create`, or `gh issue edit` with long markdown content:
+- **NEVER** pass long content directly via `--body "..."` inline argument — this causes the command to hang or get stuck due to shell escaping issues and argument length limits on Windows.
+- **ALWAYS** write the content to a temporary file first, then use `--body-file <path>` to pass it.
+- Clean up the temporary file after the command succeeds.
+
+Example pattern:
+```
+1. write_to_file → tmp-body.md (with the markdown content)
+2. gh issue comment 26 --body-file tmp-body.md
+3. del tmp-body.md
+```
+
+### Git Commands — Pager Issues
+When running `git log`, `git diff`, or any git command that may invoke a pager:
+- **ALWAYS** use `git --no-pager <command>` to prevent the command from hanging in an interactive pager.
+
+### General CLI Rules
+- Prefer `--no-pager` flags on any command that supports them.
+- Use `-y` or `--yes` flags to auto-confirm prompts when safe (e.g., `npx -y`).
+- Redirect stderr to stdout with `2>&1` to capture error messages.
+- For long-running commands, set reasonable timeouts when possible.
