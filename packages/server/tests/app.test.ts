@@ -65,6 +65,8 @@ describe('Server authentication', () => {
     { method: 'GET', url: '/' },
     { method: 'GET', url: '/jobs' },
     { method: 'GET', url: '/jobs/missing' },
+    { method: 'GET', url: '/jobs/missing/transcript' },
+    { method: 'POST', url: '/jobs' },
     { method: 'POST', url: '/upload' },
     { method: 'POST', url: '/jobs/missing/retry' },
     { method: 'DELETE', url: '/jobs/missing' },

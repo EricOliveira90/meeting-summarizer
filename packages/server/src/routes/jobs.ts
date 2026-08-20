@@ -89,6 +89,35 @@ export async function jobRoutes(server: FastifyInstance) {
     return toJobResponse(job);
   });
 
+  server.get<{ Params: { id: string } }>('/jobs/:id/transcript', async (req, reply) => {
+    const job = await store.getById(req.params.id);
+    if (!job) {
+      return reply.status(404).send({
+        code: 'JOB_NOT_FOUND',
+        error: 'Job was not found.',
+      });
+    }
+
+    if (job.serverStatus !== 'COMPLETED' || job.currentStep !== JobStep.DONE) {
+      return reply.status(409).send({
+        code: 'TRANSCRIPT_NOT_READY',
+        error: 'Transcript is not ready.',
+      });
+    }
+
+    try {
+      const transcript = await artifacts.readTranscript(job.id);
+      if (transcript !== null) {
+        return reply.type('text/plain').send(transcript);
+      }
+    } catch {}
+
+    return reply.status(409).send({
+      code: 'TRANSCRIPT_NOT_READY',
+      error: 'Transcript is not ready.',
+    });
+  });
+
   /**
    * DELETE /jobs/:id — Delete a job, cancel if processing, remove files
    */

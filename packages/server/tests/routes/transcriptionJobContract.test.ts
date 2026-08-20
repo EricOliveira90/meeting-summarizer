@@ -646,3 +646,105 @@ describe('Job status contract', () => {
     }
   });
 });
+
+describe('Transcript download contract', () => {
+  it.each([
+    {
+      name: 'unknown Job',
+      id: 'missing',
+      expectedStatus: 404,
+      expectedBody: {
+        code: 'JOB_NOT_FOUND',
+        error: 'Job was not found.',
+      },
+    },
+    {
+      name: 'pending Job',
+      id: 'pending',
+      job: {
+        serverStatus: 'PENDING',
+        currentStep: JobStep.QUEUED,
+      },
+      expectedStatus: 409,
+      expectedBody: {
+        code: 'TRANSCRIPT_NOT_READY',
+        error: 'Transcript is not ready.',
+      },
+    },
+    {
+      name: 'completed Job with text',
+      id: 'ready',
+      job: {
+        serverStatus: 'COMPLETED',
+        currentStep: JobStep.DONE,
+      },
+      transcript: 'Speaker 1: Ready transcript',
+      expectedStatus: 200,
+    },
+    {
+      name: 'completed Job with null artifact',
+      id: 'null-artifact',
+      job: {
+        serverStatus: 'COMPLETED',
+        currentStep: JobStep.DONE,
+      },
+      transcript: null,
+      expectedStatus: 409,
+      expectedBody: {
+        code: 'TRANSCRIPT_NOT_READY',
+        error: 'Transcript is not ready.',
+      },
+    },
+    {
+      name: 'completed Job with rejected artifact read',
+      id: 'rejected-read',
+      job: {
+        serverStatus: 'COMPLETED',
+        currentStep: JobStep.DONE,
+      },
+      transcriptError: new Error('artifact unavailable'),
+      expectedStatus: 409,
+      expectedBody: {
+        code: 'TRANSCRIPT_NOT_READY',
+        error: 'Transcript is not ready.',
+      },
+    },
+  ])('returns the locked outcome for $name', async ({
+    id,
+    job,
+    transcript,
+    transcriptError,
+    expectedStatus,
+    expectedBody,
+  }) => {
+    const harness = createHarness();
+    if (job) {
+      harness.jobs.push({
+        id,
+        originalFilename: `${id}.wav`,
+        filePath: `/artifact-root/uploads/${id}.wav`,
+        recordedAt: '2026-04-01T10:30:00.000Z',
+        ...job,
+      } as JobRecord);
+    }
+    if (transcriptError) {
+      harness.artifacts.readTranscript.mockRejectedValueOnce(transcriptError);
+    } else if (transcript !== undefined) {
+      harness.artifacts.readTranscript.mockResolvedValueOnce(transcript);
+    }
+
+    const response = await harness.app.inject({
+      method: 'GET',
+      url: `/jobs/${id}/transcript`,
+      headers: { 'x-api-key': API_KEY },
+    });
+
+    expect(response.statusCode).toBe(expectedStatus);
+    if (expectedStatus === 200) {
+      expect(response.headers['content-type']).toContain('text/plain');
+      expect(response.body).toBe(transcript);
+    } else {
+      expect(response.json()).toEqual(expectedBody);
+    }
+  });
+});
