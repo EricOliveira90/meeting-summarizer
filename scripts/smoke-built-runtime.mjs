@@ -50,8 +50,45 @@ async function smokeClient() {
   }
 }
 
+function runServerWithoutApiKey(serverPath) {
+  const env = { ...process.env };
+  delete env.API_KEY;
+  delete env.GEMINI_API_KEY;
+
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [serverPath], {
+      cwd: repoRoot,
+      env,
+      windowsHide: true,
+    });
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk;
+    });
+    child.on('error', reject);
+    child.on('close', (code) => {
+      resolve({ code, stdout, stderr });
+    });
+  });
+}
+
 async function smokeServer() {
   const serverPath = path.join(repoRoot, 'packages/server/dist/index.js');
+  const missingKey = await runServerWithoutApiKey(serverPath);
+  assert.notEqual(missingKey.code, 0);
+  assert.equal(missingKey.stdout, '');
+  assert.deepEqual(
+    missingKey.stderr.trim().split(/\r?\n/),
+    ['CONFIG_API_KEY_REQUIRED', 'API_KEY is required.'],
+  );
+
   process.env.GEMINI_API_KEY ||= 'built-runtime-smoke-key';
   process.env.API_KEY ||= 'built-runtime-smoke-api-key';
   const { buildServer } = require(serverPath);

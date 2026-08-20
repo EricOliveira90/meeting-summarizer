@@ -3,20 +3,21 @@ import { AIProvider } from './ai-provider';
 
 export class GeminiProvider implements AIProvider {
   readonly name = 'gemini';
-  private ai: GoogleGenAI;
-  private modelId: string;
+  private ai?: GoogleGenAI;
+  private readonly apiKey: string;
+  private readonly modelId: string;
 
   constructor(apiKey?: string, model?: string) {
-    const key = apiKey || process.env.GEMINI_API_KEY || '';
+    this.apiKey = apiKey || process.env.GEMINI_API_KEY || '';
     this.modelId = model || process.env.GEMINI_MODEL || 'gemini-3-flash-preview';
-
-    if (!key) {
-      console.warn('⚠️ GEMINI_API_KEY is missing. Summarization will fail.');
-    }
-    this.ai = new GoogleGenAI({ apiKey: key });
   }
 
   async summarize(transcript: string, systemPrompt: string): Promise<string> {
+    if (!this.apiKey) {
+      throw new Error('GEMINI_API_KEY is missing.');
+    }
+    this.ai ??= new GoogleGenAI({ apiKey: this.apiKey });
+
     const response = await this.ai.models.generateContent({
       model: this.modelId,
       contents: [
