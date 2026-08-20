@@ -1,7 +1,7 @@
 import { Readable } from 'node:stream';
 import FormData from 'form-data';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { JobStep } from '@meeting-summarizer/shared';
+import { AIPromptTemplate, JobStep, TranscriptionLanguage } from '@meeting-summarizer/shared';
 import type { JobRecord } from '../../src/domain/models';
 
 vi.mock('@google/genai', () => ({
@@ -465,5 +465,61 @@ describe.each(['/jobs', '/upload'])('POST %s creation contract', (url) => {
       expect(harness.jobStore.replace).not.toHaveBeenCalled();
       expect(harness.jobQueue.push).not.toHaveBeenCalled();
     }
+  });
+
+  it('replaces a prior Job ID with changed valid metadata and media', async () => {
+    const harness = createHarness();
+    harness.jobs.push({
+      id: 'job-123',
+      originalFilename: 'old.wav',
+      filePath: '/artifact-root/uploads/job-123_old.wav',
+      recordedAt: '2026-03-01T12:00:00.000Z',
+      serverStatus: 'FAILED',
+      currentStep: JobStep.TRANSCRIBING,
+      failedStep: JobStep.TRANSCRIBING,
+      error: 'old failure',
+      options: {
+        language: TranscriptionLanguage.ENGLISH,
+        template: AIPromptTemplate.MEETING,
+      },
+    });
+
+    const response = await submitRecording(harness, url, {
+      filename: 'replacement.mp3',
+      contentType: 'audio/mpeg',
+      headers: {
+        'x-recorded-at': '2026-04-02T09:00:00-03:00',
+        'x-language': 'es',
+        'x-template': 'summary',
+        'x-min-speakers': '2',
+        'x-max-speakers': '5',
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      success: true,
+      jobId: 'job-123',
+      message: 'File queued.',
+    });
+    expect(harness.jobs).toHaveLength(1);
+    expect(harness.jobs[0]).toEqual(expect.objectContaining({
+      id: 'job-123',
+      originalFilename: 'replacement.mp3',
+      filePath: '/artifact-root/uploads/job-123_replacement.mp3',
+      recordedAt: '2026-04-02T12:00:00.000Z',
+      serverStatus: 'PENDING',
+      currentStep: JobStep.QUEUED,
+      options: {
+        language: 'es',
+        template: 'summary',
+        minSpeakers: 2,
+        maxSpeakers: 5,
+      },
+    }));
+    expect(harness.jobs[0]).not.toHaveProperty('error');
+    expect(harness.jobs[0]).not.toHaveProperty('failedStep');
+    expect(harness.jobStore.replace).toHaveBeenCalledOnce();
+    expect(harness.jobQueue.push).toHaveBeenCalledOnce();
   });
 });
