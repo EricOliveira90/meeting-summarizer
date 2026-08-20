@@ -14,12 +14,12 @@
   },
   "dependencies": {
     "@meeting-summarizer/shared": "1.0.0",
-    "axios": "^1.6.7",
+    "axios": "^1.19.0",
     "commander": "^11.1.0",
     "conf": "^10.2.0",
     "dotenv": "^17.3.1",
-    "form-data": "^4.0.5",
-    "inquirer": "^8.2.6",
+    "form-data": "^4.0.6",
+    "inquirer": "^8.2.7",
     "lowdb": "^7.0.1",
     "node-global-key-listener": "^0.1.1"
   },

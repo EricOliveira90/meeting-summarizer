@@ -16,15 +16,14 @@
     "@meeting-summarizer/shared": "1.0.0",
     "better-queue": "^3.8.12",
     "dotenv": "^17.2.3",
-    "fastify": "^5.7.4",
-    "fastify-multipart": "^5.4.0",
+    "fastify": "^5.12.1",
     "fluent-ffmpeg": "^2.1.2",
     "lowdb": "^7.0.1"
   },
   "devDependencies": {
     "@types/better-queue": "^3.8.5",
     "@types/fluent-ffmpeg": "^2.1.24",
-    "form-data": "^4.0.5",
+    "form-data": "^4.0.6",
     "rimraf": "^5.0.10",
     "ts-node-dev": "^2.0.0",
     "tsconfig-paths": "^4.2.0"
