@@ -143,4 +143,105 @@ describe.each(['/jobs', '/upload'])('POST %s creation contract', (url) => {
     });
     expect(harness.effects).toEqual(['path', 'stage', 'commit', 'persist', 'queue']);
   });
+
+  const invalidMetadata = [
+    {
+      name: 'missing Job ID',
+      omit: ['x-job-id'],
+      expected: {
+        code: 'INVALID_JOB_ID',
+        error: 'x-job-id must contain 1-128 letters, digits, hyphens, or underscores and start with a letter or digit.',
+      },
+    },
+    ...['_job', 'job.1', '../job', 'a'.repeat(129)].map((value) => ({
+      name: `Job ID ${value}`,
+      headers: { 'x-job-id': value },
+      expected: {
+        code: 'INVALID_JOB_ID',
+        error: 'x-job-id must contain 1-128 letters, digits, hyphens, or underscores and start with a letter or digit.',
+      },
+    })),
+    {
+      name: 'missing recorded-at',
+      omit: ['x-recorded-at'],
+      expected: {
+        code: 'INVALID_RECORDED_AT',
+        error: 'x-recorded-at must be a valid ISO-8601 timestamp.',
+      },
+    },
+    ...[
+      '2026-04-01T10:30:00',
+      '2026-04-01',
+      '2026-W14-3T10:30:00Z',
+      '2026-091T10:30:00Z',
+      '2026-04-01T10:30:60Z',
+      '2026-02-30T10:30:00Z',
+      'not-a-date',
+    ].map((value) => ({
+      name: `recorded-at ${value}`,
+      headers: { 'x-recorded-at': value },
+      expected: {
+        code: 'INVALID_RECORDED_AT',
+        error: 'x-recorded-at must be a valid ISO-8601 timestamp.',
+      },
+    })),
+    {
+      name: 'unknown language',
+      headers: { 'x-language': 'fr' },
+      expected: {
+        code: 'INVALID_LANGUAGE',
+        error: 'x-language must be one of: auto, en, pt, es.',
+      },
+    },
+    {
+      name: 'unknown template',
+      headers: { 'x-template': 'minutes' },
+      expected: {
+        code: 'INVALID_TEMPLATE',
+        error: 'x-template must be one of: meeting, training, summary.',
+      },
+    },
+    ...['x-min-speakers', 'x-max-speakers'].flatMap((header) =>
+      ['0', '-1', '1.5', '2x'].map((value) => ({
+        name: `${header} ${value}`,
+        headers: { [header]: value },
+        expected: {
+          code: 'INVALID_SPEAKER_BOUND',
+          error: 'Speaker bounds must be positive integers.',
+        },
+      })),
+    ),
+    {
+      name: 'descending speaker range',
+      headers: { 'x-min-speakers': '3', 'x-max-speakers': '2' },
+      expected: {
+        code: 'INVALID_SPEAKER_RANGE',
+        error: 'x-min-speakers must not exceed x-max-speakers.',
+      },
+    },
+  ];
+
+  it.each(invalidMetadata)('rejects $name before collaborator effects', async ({ headers = {}, omit = [], expected }) => {
+    const harness = createHarness();
+    const multipart = multipartRecording(Buffer.from('recording'), 'meeting.wav', 'audio/wav');
+    const requestHeaders: Record<string, string> = {
+      ...multipart.headers,
+      'x-api-key': API_KEY,
+      'x-job-id': 'job-123',
+      'x-recorded-at': '2026-04-01T10:30:00Z',
+      ...headers,
+    };
+    for (const header of omit) delete requestHeaders[header];
+
+    const response = await harness.app.inject({
+      method: 'POST',
+      url,
+      headers: requestHeaders,
+      payload: multipart.payload,
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual(expected);
+    expect(harness.effects).toEqual([]);
+  });
 });

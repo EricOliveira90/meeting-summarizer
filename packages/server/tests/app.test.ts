@@ -50,7 +50,10 @@ describe('Server API', () => {
     });
 
     expect(response.statusCode).toBe(400); 
-    expect(response.json()).toEqual({ error: 'Missing required header: x-job-id' });
+    expect(response.json()).toEqual({
+      code: 'INVALID_JOB_ID',
+      error: 'x-job-id must contain 1-128 letters, digits, hyphens, or underscores and start with a letter or digit.',
+    });
   });
 });
 
