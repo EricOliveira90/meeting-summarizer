@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 interface PackageManifest {
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
+  scripts?: Record<string, string>;
 }
 
 interface PackageLock {
@@ -40,5 +41,15 @@ describe('release baseline', () => {
         manifest.devDependencies ?? {},
       );
     }
+  });
+
+  it('builds shared before both runtime workspaces', () => {
+    const manifest = readJson<PackageManifest>('package.json');
+
+    expect(manifest.scripts?.build).toBe(
+      'npm run build --workspace=packages/shared && ' +
+        'npm run build --workspace=packages/client && ' +
+        'npm run build --workspace=packages/server',
+    );
   });
 });
