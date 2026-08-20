@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { MeetingService } from '../../src/services/meeting';
 import { LowDB } from '../../src/services/db';
@@ -10,26 +11,23 @@ describe('MeetingService', () => {
     let mockFileSystem: any;
     let db: LowDB;
     let meetingService: MeetingService;
-    const testDbPath = path.join(__dirname, 'test-meeting-db.json');
+    let testDir: string;
 
     beforeEach(() => {
-        if (fs.existsSync(testDbPath)) {
-            fs.unlinkSync(testDbPath);
-        }
-
         mockFileSystem = {
             fileExists: vi.fn().mockResolvedValue(true)
         };
 
+        testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'meeting-service-test-'));
+        const testDbPath = path.join(testDir, 'meeting-db.json');
         db = new LowDB(mockFileSystem, testDbPath);
         meetingService = new MeetingService(db);
     });
 
-    afterEach(() => {
+    afterEach(async () => {
+        await db.getAllMeetings();
         vi.restoreAllMocks();
-        if (fs.existsSync(testDbPath)) {
-            fs.unlinkSync(testDbPath);
-        }
+        fs.rmSync(testDir, { recursive: true, force: true });
     });
 
     describe('create()', () => {
