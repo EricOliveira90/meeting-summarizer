@@ -1,0 +1,9 @@
+## Evaluator feedback — round 2
+
+VERDICT: REVISE
+GAPS: 2
+RE_RAISED_GAPS: 0
+
+### If REVISE, specific gaps:
+- **In scope / Test plan:** The plan says, "when ... the remaining invalid-header/file table run," but no such table exists. The scope defines a Job-ID regex, positive-integer speaker bounds, language/template allowlists, and matched extension/MIME pairs without naming concrete rejected inputs for those rules. An implementation could accept a 129-character or traversal Job ID, parse `2x` as speaker count `2`, or accept a mismatched `.wav`/`audio/mpeg` pair while satisfying every explicitly named test case. This violates falsifiability and UAT-verifiability. Add the actual table with concrete missing, boundary, malformed, traversal, unsupported, and mismatched inputs and the exact expected status/body and collaborator effects on both routes.
+- **Existing behavior to preserve / Test plan:** The contract promises, "Health payload, CORS, multipart registration, and configured upload limit," "retry's completed-step preservation/requeue and delete's cancellation/file/record removal," and "Omitted language default `auto`, duplicate-ID upsert/requeue, success payload..." The test plan names health only indirectly through the full-suite command and has no observable scenario for CORS, omitted-language defaulting, duplicate-ID replacement/requeue, active-process cancellation, or file removal. The current suite also has no CORS, omitted-language, or duplicate-upload test, and its deletion tests do not assert active cancellation or the file collaborator call. Thus those preservation promises can regress while every planned command exits zero. This violates falsifiability. Add concrete authenticated HTTP scenarios and assertions for each preserved behavior, or remove the promises from this contract.
