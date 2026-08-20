@@ -122,6 +122,16 @@ describe('FileManagerService', () => {
     expect(fs.existsSync(summaryPath)).toBe(false);
   });
 
+  it('deleteJobFiles removes a Recording stored with a sanitized artifact name', async () => {
+    await fileManager.ensureDirectories();
+    const uploadPath = fileManager.getUploadPath('job-123', 'team_retro_.wav');
+    fs.writeFileSync(uploadPath, 'upload');
+
+    await fileManager.deleteJobFiles('job-123', 'team retro?.wav');
+
+    expect(fs.existsSync(uploadPath)).toBe(false);
+  });
+
   it('deleteJobFiles does not throw when files do not exist', async () => {
     await fileManager.ensureDirectories();
     // Should not throw even if no files exist

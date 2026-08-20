@@ -92,9 +92,10 @@ export class FileManagerService implements ArtifactStore {
   // --- File Deletion ---
 
   async deleteJobFiles(jobId: string, originalFilename: string): Promise<void> {
+    const artifactFilename = originalFilename.replace(/[^a-zA-Z0-9.-]/g, '_');
     const paths = [
-      this.getUploadPath(jobId, originalFilename),
-      this.getAudioPath(jobId, originalFilename),
+      this.getUploadPath(jobId, artifactFilename),
+      this.getAudioPath(jobId, artifactFilename),
       this.getTranscriptPath(jobId),
       this.getSummaryPath(jobId),
     ];
