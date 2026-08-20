@@ -38,7 +38,10 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
 
   // --- Plugins ---
   server.register(cors, { origin: '*' });
-  server.register(multipart);
+  server.register(multipart, {
+    limits: { fileSize: 524_288_001 },
+    throwFileSizeLimit: false,
+  });
 
   // --- Authentication ---
   server.addHook('onRequest', async (request, reply) => {

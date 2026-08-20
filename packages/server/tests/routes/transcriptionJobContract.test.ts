@@ -36,7 +36,7 @@ function multipartRecording(content: Buffer, filename: string, contentType: stri
   };
 }
 
-function createHarness() {
+function createHarness({ stagedSize }: { stagedSize?: number } = {}) {
   const jobs: JobRecord[] = [];
   const effects: string[] = [];
 
@@ -69,7 +69,7 @@ function createHarness() {
       effects.push('stage');
       let size = 0;
       for await (const chunk of stream) size += Buffer.byteLength(chunk);
-      return { stagedPath: '/artifact-root/staged-recording', size };
+      return { stagedPath: '/artifact-root/staged-recording', size: stagedSize ?? size };
     }),
     commitRecording: vi.fn(async () => {
       effects.push('commit');
@@ -404,5 +404,66 @@ describe.each(['/jobs', '/upload'])('POST %s creation contract', (url) => {
     expect(response.statusCode).toBe(200);
     expect(harness.jobs[0].originalFilename).toBe('team retro?.wav');
     expect(harness.artifacts.getUploadPath).toHaveBeenCalledWith('job-123', 'team_retro_.wav');
+  });
+
+  it('rejects a missing Recording before collaborator effects', async () => {
+    const harness = createHarness();
+
+    const response = await harness.app.inject({
+      method: 'POST',
+      url,
+      headers: {
+        'x-api-key': API_KEY,
+        'x-job-id': 'job-123',
+        'x-recorded-at': '2026-04-01T10:30:00Z',
+        'content-type': 'multipart/form-data; boundary=missing-file',
+      },
+      payload: '--missing-file--\r\n',
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({
+      code: 'FILE_REQUIRED',
+      error: 'A Recording file is required.',
+    });
+    expect(harness.effects).toEqual([]);
+  });
+
+  it('rejects an empty Recording before collaborator effects', async () => {
+    const harness = createHarness();
+
+    const response = await submitRecording(harness, url, { content: Buffer.alloc(0) });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({
+      code: 'EMPTY_RECORDING',
+      error: 'Recording file must not be empty.',
+    });
+    expect(harness.effects).toEqual([]);
+  });
+
+  it.each([
+    [1, 200],
+    [524_288_000, 200],
+    [524_288_001, 413],
+  ])('handles a staged Recording size of %i bytes', async (size, expectedStatus) => {
+    const harness = createHarness({ stagedSize: size });
+
+    const response = await submitRecording(harness, url, { content: Buffer.from('x') });
+
+    expect(response.statusCode).toBe(expectedStatus);
+    if (expectedStatus === 200) {
+      expect(harness.effects).toEqual(['path', 'stage', 'commit', 'persist', 'queue']);
+    } else {
+      expect(response.json()).toEqual({
+        code: 'UPLOAD_TOO_LARGE',
+        error: 'Recording exceeds the 500 MiB limit.',
+      });
+      expect(harness.effects).toEqual(['path', 'stage', 'delete']);
+      expect(harness.artifacts.deleteRecording).toHaveBeenCalledWith('/artifact-root/staged-recording');
+      expect(harness.artifacts.commitRecording).not.toHaveBeenCalled();
+      expect(harness.jobStore.replace).not.toHaveBeenCalled();
+      expect(harness.jobQueue.push).not.toHaveBeenCalled();
+    }
   });
 });

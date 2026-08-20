@@ -1,5 +1,6 @@
 import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import path from 'node:path';
+import { Readable } from 'node:stream';
 import {
   TranscriptionLanguage,
   AIPromptTemplate,
@@ -14,6 +15,7 @@ const ZONED_TIMESTAMP_PATTERN =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 const LANGUAGES = Object.values(TranscriptionLanguage);
 const TEMPLATES = Object.values(AIPromptTemplate);
+const MAX_RECORDING_BYTES = 524_288_000;
 const MEDIA_TYPES: Record<string, string> = {
   '.mkv': 'video/x-matroska',
   '.mp3': 'audio/mpeg',
@@ -70,6 +72,21 @@ function parseSpeakerBound(value: string | undefined): SpeakerBound {
   return Number.isSafeInteger(parsed)
     ? { valid: true, value: parsed }
     : { valid: false };
+}
+
+async function requireContent(source: Readable): Promise<Readable | null> {
+  const iterator = source[Symbol.asyncIterator]();
+  const first = await iterator.next();
+  if (first.done) return null;
+
+  return Readable.from((async function* () {
+    yield first.value;
+    while (true) {
+      const next = await iterator.next();
+      if (next.done) return;
+      yield next.value;
+    }
+  })());
 }
 
 export async function uploadRoutes(server: FastifyInstance) {
@@ -130,7 +147,10 @@ export async function uploadRoutes(server: FastifyInstance) {
     const data = await req.file();
 
     if (!data) {
-      return reply.status(400).send({ error: 'No file uploaded' });
+      return reply.status(400).send({
+        code: 'FILE_REQUIRED',
+        error: 'A Recording file is required.',
+      });
     }
 
     const extension = path.extname(data.filename).toLowerCase();
@@ -141,13 +161,28 @@ export async function uploadRoutes(server: FastifyInstance) {
       });
     }
 
+    const recording = await requireContent(data.file);
+    if (!recording) {
+      return reply.status(400).send({
+        code: 'EMPTY_RECORDING',
+        error: 'Recording file must not be empty.',
+      });
+    }
+
     const safeOriginalName = data.filename.replace(/[^a-zA-Z0-9.-]/g, '_');
     const savePath = artifacts.getUploadPath(jobId, safeOriginalName);
     let stagedPath: string | undefined;
 
     try {
-      const staged = await artifacts.stageRecording(savePath, data.file);
+      const staged = await artifacts.stageRecording(savePath, recording);
       stagedPath = staged.stagedPath;
+      if (staged.size > MAX_RECORDING_BYTES || data.file.truncated) {
+        await artifacts.deleteRecording(staged.stagedPath);
+        return reply.status(413).send({
+          code: 'UPLOAD_TOO_LARGE',
+          error: 'Recording exceeds the 500 MiB limit.',
+        });
+      }
       await artifacts.commitRecording(staged.stagedPath, savePath);
 
       const options = {
