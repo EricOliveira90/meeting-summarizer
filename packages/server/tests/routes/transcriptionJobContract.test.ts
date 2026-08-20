@@ -523,3 +523,126 @@ describe.each(['/jobs', '/upload'])('POST %s creation contract', (url) => {
     expect(harness.jobQueue.push).toHaveBeenCalledOnce();
   });
 });
+
+describe('Job status contract', () => {
+  it('preserves state metadata while recursively redacting text, paths, and artifact-root values', async () => {
+    const harness = createHarness();
+    const statePairs = [
+      ['pending', 'PENDING', JobStep.QUEUED],
+      ['extracting', 'PROCESSING', JobStep.EXTRACTING_AUDIO],
+      ['transcribing', 'PROCESSING', JobStep.TRANSCRIBING],
+      ['summarizing', 'PROCESSING', JobStep.SUMMARIZING],
+      ['done', 'COMPLETED', JobStep.DONE],
+    ] as const;
+
+    for (const [id, serverStatus, currentStep] of statePairs) {
+      harness.jobs.push({
+        id,
+        originalFilename: `${id}.wav`,
+        filePath: `/artifact-root/uploads/${id}.wav`,
+        recordedAt: '2026-04-01T10:30:00.000Z',
+        serverStatus,
+        currentStep,
+      });
+    }
+
+    harness.jobs.push({
+      id: 'failed',
+      originalFilename: 'failed.wav',
+      filePath: '/artifact-root/uploads/failed.wav',
+      recordedAt: '2026-04-01T10:30:00.000Z',
+      serverStatus: 'FAILED',
+      currentStep: JobStep.TRANSCRIBING,
+      failedStep: JobStep.TRANSCRIBING,
+      error: 'Whisper failed',
+      recoveryAttempts: 2,
+      steps: {
+        [JobStep.QUEUED]: {
+          startedAt: '2026-04-01T10:30:00.000Z',
+          completedAt: '2026-04-01T10:30:00.000Z',
+        },
+        [JobStep.TRANSCRIBING]: {
+          startedAt: '2026-04-01T10:31:00.000Z',
+        },
+      },
+      nested: {
+        transcriptText: 'TRANSCRIPT_TEXT_SENTINEL',
+        summaryText: 'SUMMARY_TEXT_SENTINEL',
+        uploadPath: '/artifact-root/uploads/hidden.wav',
+        deeper: [{
+          audioPath: '/artifact-root/audio/hidden.wav',
+          transcriptPath: '/artifact-root/transcript/hidden.txt',
+          summaryPath: '/artifact-root/summary/hidden.txt',
+          recoveryAttempts: 9,
+          alias: '/artifact-root/secret-value',
+        }],
+      },
+    } as JobRecord);
+
+    const list = await harness.app.inject({
+      method: 'GET',
+      url: '/jobs',
+      headers: { 'x-api-key': API_KEY },
+    });
+
+    expect(list.statusCode).toBe(200);
+    expect(list.json()).toMatchObject({
+      total: 6,
+      page: 1,
+      limit: 20,
+      jobs: [
+        ...statePairs.map(([id, serverStatus, currentStep]) => ({
+          id,
+          serverStatus,
+          currentStep,
+        })),
+        {
+          id: 'failed',
+          serverStatus: 'FAILED',
+          currentStep: JobStep.TRANSCRIBING,
+          failedStep: JobStep.TRANSCRIBING,
+          error: 'Whisper failed',
+        },
+      ],
+    });
+
+    const detail = await harness.app.inject({
+      method: 'GET',
+      url: '/jobs/failed',
+      headers: { 'x-api-key': API_KEY },
+    });
+
+    expect(detail.statusCode).toBe(200);
+    expect(detail.json()).toMatchObject({
+      id: 'failed',
+      serverStatus: 'FAILED',
+      currentStep: JobStep.TRANSCRIBING,
+      failedStep: JobStep.TRANSCRIBING,
+      error: 'Whisper failed',
+      steps: {
+        [JobStep.QUEUED]: {
+          startedAt: '2026-04-01T10:30:00.000Z',
+          completedAt: '2026-04-01T10:30:00.000Z',
+        },
+        [JobStep.TRANSCRIBING]: {
+          startedAt: '2026-04-01T10:31:00.000Z',
+        },
+      },
+    });
+
+    const exposed = `${list.body} ${detail.body}`;
+    for (const prohibited of [
+      'TRANSCRIPT_TEXT_SENTINEL',
+      'SUMMARY_TEXT_SENTINEL',
+      'filePath',
+      'uploadPath',
+      'audioPath',
+      'transcriptPath',
+      'summaryPath',
+      'recoveryAttempts',
+      '/artifact-root',
+    ]) {
+      expect(exposed).not.toContain(prohibited);
+    }
+  });
+});

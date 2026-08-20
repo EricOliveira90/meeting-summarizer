@@ -50,7 +50,10 @@ describe('Route Extraction', () => {
       headers: { 'x-api-key': apiKey },
     });
     expect(response.statusCode).toBe(404);
-    expect(response.json()).toEqual({ error: 'Job not found' });
+    expect(response.json()).toEqual({
+      code: 'JOB_NOT_FOUND',
+      error: 'Job was not found.',
+    });
   });
 
   it('POST /upload returns 400 when no file is uploaded', async () => {

@@ -30,7 +30,11 @@ vi.mock('../../src/services/db', () => ({
     getAll: () => Promise.resolve(mockJobs),
     getById: (id: string) => Promise.resolve(mockJobs.find((job) => job.id === id)),
     replace: vi.fn(),
-    delete: vi.fn(),
+    delete: vi.fn(async (id: string) => {
+      const index = mockJobs.findIndex((job) => job.id === id);
+      if (index !== -1) mockJobs.splice(index, 1);
+      await mockWrite();
+    }),
   },
 }));
 
@@ -49,6 +53,7 @@ vi.mock('../../src/services/file-manager', async (importOriginal) => {
 });
 
 import { buildServer } from '../../src/index';
+import { activeProcess, setActiveProcess } from '../../src/services/queue';
 
 function makeJob(id: string, status: JobRecord['serverStatus']): JobRecord {
   return {
@@ -72,12 +77,16 @@ describe('DELETE /jobs/:id — Job Deletion API', () => {
   beforeEach(() => {
     mockJobs.length = 0;
     vi.clearAllMocks();
+    setActiveProcess(null);
   });
 
   it('returns 404 for unknown job', async () => {
     const response = await app.inject({ method: 'DELETE', url: '/jobs/nonexistent', headers: { 'x-api-key': apiKey } });
     expect(response.statusCode).toBe(404);
-    expect(response.json()).toEqual({ error: 'Job not found' });
+    expect(response.json()).toEqual({
+      code: 'JOB_NOT_FOUND',
+      error: 'Job was not found.',
+    });
   });
 
   it('deletes a PENDING job — removes DB record and files', async () => {
@@ -108,5 +117,25 @@ describe('DELETE /jobs/:id — Job Deletion API', () => {
     expect(response.statusCode).toBe(200);
 
     expect(mockJobs.find(j => j.id === 'job-fail')).toBeUndefined();
+  });
+
+  it('deletes a PROCESSING job by cancelling its process, files, and record', async () => {
+    const process = { kill: vi.fn() };
+    setActiveProcess(process);
+    mockJobs.push(makeJob('job-processing', 'PROCESSING'));
+
+    const response = await app.inject({
+      method: 'DELETE',
+      url: '/jobs/job-processing',
+      headers: { 'x-api-key': apiKey },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ success: true, message: 'Job deleted' });
+    expect(process.kill).toHaveBeenCalledOnce();
+    expect(activeProcess).toBeNull();
+    expect(mockDeleteJobFiles).toHaveBeenCalledWith('job-processing', 'job-processing.mkv');
+    expect(mockJobs).toEqual([]);
+    expect(mockWrite).toHaveBeenCalledOnce();
   });
 });

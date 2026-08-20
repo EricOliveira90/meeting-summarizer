@@ -33,7 +33,9 @@ vi.mock('../../src/services/db', () => ({
   jobStore: {
     getAll: () => Promise.resolve(mockJobs),
     getById: (id: string) => Promise.resolve(mockJobs.find((job) => job.id === id)),
-    replace: vi.fn(),
+    replace: vi.fn(async () => {
+      await mockWrite();
+    }),
     delete: vi.fn(),
   },
 }));
@@ -74,7 +76,10 @@ describe('POST /jobs/:id/retry — Job Retry API', () => {
   it('returns 404 for unknown job', async () => {
     const response = await app.inject({ method: 'POST', url: '/jobs/nonexistent/retry', headers: { 'x-api-key': apiKey } });
     expect(response.statusCode).toBe(404);
-    expect(response.json()).toEqual({ error: 'Job not found' });
+    expect(response.json()).toEqual({
+      code: 'JOB_NOT_FOUND',
+      error: 'Job was not found.',
+    });
   });
 
   it('returns 409 for non-FAILED job', async () => {

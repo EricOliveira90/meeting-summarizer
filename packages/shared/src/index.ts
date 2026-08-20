@@ -38,6 +38,7 @@ export interface UploadResponse {
 }
 
 export interface ErrorResponse {
+  code?: string;
   error: string;
 }
 

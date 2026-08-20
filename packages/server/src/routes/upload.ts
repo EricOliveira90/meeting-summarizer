@@ -34,7 +34,8 @@ function headerValue(value: string | string[] | undefined): string | undefined {
 }
 
 function normalizeRecordedAt(value: string | undefined): string | null {
-  const match = value?.match(ZONED_TIMESTAMP_PATTERN);
+  if (!value) return null;
+  const match = value.match(ZONED_TIMESTAMP_PATTERN);
   if (!match) return null;
 
   const [, yearText, monthText, dayText, hourText, minuteText, secondText, zone] = match;

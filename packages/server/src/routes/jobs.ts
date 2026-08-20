@@ -1,16 +1,51 @@
 import { FastifyInstance } from 'fastify';
 import {
-  Job,
   JobState,
   JobResponse,
   ErrorResponse
 } from '@meeting-summarizer/shared';
-import { JobStep, StepTimestamp } from '@meeting-summarizer/shared';
-import { getDb, activeProcess, setActiveProcess, meetingQueue } from '../services';
+import { JobStep } from '@meeting-summarizer/shared';
+import { activeProcess, setActiveProcess } from '../services/queue';
 import { JobRecord } from '../domain/models';
 
+const PROHIBITED_RESPONSE_KEYS = new Set([
+  'transcriptText',
+  'summaryText',
+  'filePath',
+  'uploadPath',
+  'audioPath',
+  'transcriptPath',
+  'summaryPath',
+  'recoveryAttempts',
+]);
+
+function redactResponse(value: unknown, artifactRoot: string): unknown {
+  if (typeof value === 'string') {
+    return artifactRoot && value.includes(artifactRoot) ? undefined : value;
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => redactResponse(item, artifactRoot))
+      .filter((item) => item !== undefined);
+  }
+
+  if (value && typeof value === 'object') {
+    const result: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value)) {
+      if (PROHIBITED_RESPONSE_KEYS.has(key)) continue;
+      const redacted = redactResponse(item, artifactRoot);
+      if (redacted !== undefined) result[key] = redacted;
+    }
+    return result;
+  }
+
+  return value;
+}
+
 export async function jobRoutes(server: FastifyInstance) {
-  const fileManager = server.fileManager;
+  const artifacts = server.artifacts;
+  const store = server.jobStore;
 
   /**
    * GET /jobs — Paginated, filterable job listing
@@ -22,8 +57,7 @@ export async function jobRoutes(server: FastifyInstance) {
     const limit = Math.max(1, parseInt(req.query.limit || '20'));
     const statusFilter = req.query.status as JobState | undefined;
 
-    const db = await getDb();
-    let jobs = db.data.jobs;
+    let jobs = await store.getAll();
 
     // Filter by status if provided
     if (statusFilter) {
@@ -34,7 +68,7 @@ export async function jobRoutes(server: FastifyInstance) {
     const offset = (page - 1) * limit;
     const paged = jobs.slice(offset, offset + limit);
 
-    const hydratedJobs = await Promise.all(paged.map(j => hydrateJobResponse(j)));
+    const hydratedJobs = paged.map(toJobResponse);
 
     return { jobs: hydratedJobs, total, page, limit };
   });
@@ -43,24 +77,29 @@ export async function jobRoutes(server: FastifyInstance) {
    * GET /jobs/:id — Returns a single job hydrated with text content
    */
   server.get<{ Params: { id: string }, Reply: JobResponse | ErrorResponse }>('/jobs/:id', async (req, reply) => {
-    const db = await getDb();
-    const job = db.data.jobs.find(j => j.id === req.params.id);
+    const job = await store.getById(req.params.id);
 
-    if (!job) return reply.status(404).send({ error: 'Job not found' });
+    if (!job) {
+      return reply.status(404).send({
+        code: 'JOB_NOT_FOUND',
+        error: 'Job was not found.',
+      });
+    }
 
-    return hydrateJobResponse(job);
+    return toJobResponse(job);
   });
 
   /**
    * DELETE /jobs/:id — Delete a job, cancel if processing, remove files
    */
   server.delete<{ Params: { id: string } }>('/jobs/:id', async (req, reply) => {
-    const db = await getDb();
-    const jobIndex = db.data.jobs.findIndex(j => j.id === req.params.id);
-
-    if (jobIndex === -1) return reply.status(404).send({ error: 'Job not found' });
-
-    const job = db.data.jobs[jobIndex];
+    const job = await store.getById(req.params.id);
+    if (!job) {
+      return reply.status(404).send({
+        code: 'JOB_NOT_FOUND',
+        error: 'Job was not found.',
+      });
+    }
 
     // If processing, kill active subprocess
     if (job.serverStatus === 'PROCESSING' && activeProcess) {
@@ -72,12 +111,11 @@ export async function jobRoutes(server: FastifyInstance) {
 
     // Delete associated files
     try {
-      await fileManager.deleteJobFiles(job.id, job.originalFilename);
+      await artifacts.deleteJobFiles(job.id, job.originalFilename);
     } catch {}
 
     // Remove from DB
-    db.data.jobs.splice(jobIndex, 1);
-    await db.write();
+    await store.delete(job.id);
 
     return { success: true, message: 'Job deleted' };
   });
@@ -86,10 +124,14 @@ export async function jobRoutes(server: FastifyInstance) {
    * POST /jobs/:id/retry — Retry a failed job from the step that failed
    */
   server.post<{ Params: { id: string } }>('/jobs/:id/retry', async (req, reply) => {
-    const db = await getDb();
-    const job = db.data.jobs.find(j => j.id === req.params.id);
+    const job = await store.getById(req.params.id);
 
-    if (!job) return reply.status(404).send({ error: 'Job not found' });
+    if (!job) {
+      return reply.status(404).send({
+        code: 'JOB_NOT_FOUND',
+        error: 'Job was not found.',
+      });
+    }
 
     if (job.serverStatus !== 'FAILED') {
       return reply.status(409).send({ error: 'Only FAILED jobs can be retried' });
@@ -111,28 +153,15 @@ export async function jobRoutes(server: FastifyInstance) {
       }
     }
 
-    await db.write();
+    await store.replace(job);
 
     // Re-queue
-    meetingQueue.push({ jobId: job.id, filePath: job.filePath });
+    server.jobQueue.push({ jobId: job.id, filePath: job.filePath });
 
     return { success: true, message: 'Job re-queued' };
   });
 
-  async function hydrateJobResponse(job: JobRecord): Promise<JobResponse> {
-    const { filePath, audioPath, transcriptPath, summaryPath, recoveryAttempts, ...safeJob } = job;
-    const response: JobResponse = { ...safeJob };
-
-    const transcriptText = await fileManager.readTranscript(job.id);
-    if (transcriptText !== null) {
-      response.transcriptText = transcriptText;
-    }
-
-    const summaryText = await fileManager.readSummary(job.id);
-    if (summaryText !== null) {
-      response.summaryText = summaryText;
-    }
-
-    return response;
+  function toJobResponse(job: JobRecord): JobResponse {
+    return redactResponse(job, artifacts.root) as JobResponse;
   }
 }
