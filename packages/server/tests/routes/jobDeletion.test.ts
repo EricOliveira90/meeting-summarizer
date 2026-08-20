@@ -56,7 +56,8 @@ function makeJob(id: string, status: JobRecord['serverStatus']): JobRecord {
 }
 
 describe('DELETE /jobs/:id — Job Deletion API', () => {
-  const app = buildServer();
+  const apiKey = 'test-api-key';
+  const app = buildServer({ apiKey });
 
   beforeAll(async () => {
     await app.ready();
@@ -68,7 +69,7 @@ describe('DELETE /jobs/:id — Job Deletion API', () => {
   });
 
   it('returns 404 for unknown job', async () => {
-    const response = await app.inject({ method: 'DELETE', url: '/jobs/nonexistent' });
+    const response = await app.inject({ method: 'DELETE', url: '/jobs/nonexistent', headers: { 'x-api-key': apiKey } });
     expect(response.statusCode).toBe(404);
     expect(response.json()).toEqual({ error: 'Job not found' });
   });
@@ -76,7 +77,7 @@ describe('DELETE /jobs/:id — Job Deletion API', () => {
   it('deletes a PENDING job — removes DB record and files', async () => {
     mockJobs.push(makeJob('job-pending', 'PENDING'));
 
-    const response = await app.inject({ method: 'DELETE', url: '/jobs/job-pending' });
+    const response = await app.inject({ method: 'DELETE', url: '/jobs/job-pending', headers: { 'x-api-key': apiKey } });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ success: true, message: 'Job deleted' });
 
@@ -88,7 +89,7 @@ describe('DELETE /jobs/:id — Job Deletion API', () => {
   it('deletes a COMPLETED job — removes DB record and files', async () => {
     mockJobs.push(makeJob('job-done', 'COMPLETED'));
 
-    const response = await app.inject({ method: 'DELETE', url: '/jobs/job-done' });
+    const response = await app.inject({ method: 'DELETE', url: '/jobs/job-done', headers: { 'x-api-key': apiKey } });
     expect(response.statusCode).toBe(200);
 
     expect(mockJobs.find(j => j.id === 'job-done')).toBeUndefined();
@@ -97,7 +98,7 @@ describe('DELETE /jobs/:id — Job Deletion API', () => {
   it('deletes a FAILED job — removes DB record and files', async () => {
     mockJobs.push(makeJob('job-fail', 'FAILED'));
 
-    const response = await app.inject({ method: 'DELETE', url: '/jobs/job-fail' });
+    const response = await app.inject({ method: 'DELETE', url: '/jobs/job-fail', headers: { 'x-api-key': apiKey } });
     expect(response.statusCode).toBe(200);
 
     expect(mockJobs.find(j => j.id === 'job-fail')).toBeUndefined();

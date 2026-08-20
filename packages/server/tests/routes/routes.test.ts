@@ -23,14 +23,19 @@ vi.mock('better-queue', () => {
 import { buildServer } from '../../src/index';
 
 describe('Route Extraction', () => {
-  const app = buildServer();
+  const apiKey = 'test-api-key';
+  const app = buildServer({ apiKey });
 
   beforeAll(async () => {
     await app.ready();
   });
 
   it('GET / returns health status', async () => {
-    const response = await app.inject({ method: 'GET', url: '/' });
+    const response = await app.inject({
+      method: 'GET',
+      url: '/',
+      headers: { 'x-api-key': apiKey },
+    });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({
       status: 'online',
@@ -39,7 +44,11 @@ describe('Route Extraction', () => {
   });
 
   it('GET /jobs/:id returns 404 for unknown job', async () => {
-    const response = await app.inject({ method: 'GET', url: '/jobs/nonexistent' });
+    const response = await app.inject({
+      method: 'GET',
+      url: '/jobs/nonexistent',
+      headers: { 'x-api-key': apiKey },
+    });
     expect(response.statusCode).toBe(404);
     expect(response.json()).toEqual({ error: 'Job not found' });
   });
@@ -49,6 +58,7 @@ describe('Route Extraction', () => {
       method: 'POST',
       url: '/upload',
       headers: {
+        'x-api-key': apiKey,
         'x-job-id': 'test-123',
         'content-type': 'multipart/form-data; boundary=---boundary'
       },

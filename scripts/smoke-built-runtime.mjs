@@ -53,17 +53,16 @@ async function smokeClient() {
 async function smokeServer() {
   const serverPath = path.join(repoRoot, 'packages/server/dist/index.js');
   process.env.GEMINI_API_KEY ||= 'built-runtime-smoke-key';
+  process.env.API_KEY ||= 'built-runtime-smoke-api-key';
   const { buildServer } = require(serverPath);
-  const server = buildServer();
+  const server = buildServer({ apiKey: process.env.API_KEY });
 
   try {
     await server.ready();
     const response = await server.inject({
       method: 'GET',
       url: '/',
-      headers: process.env.API_KEY
-        ? { 'x-api-key': process.env.API_KEY }
-        : undefined,
+      headers: { 'x-api-key': process.env.API_KEY },
     });
 
     assert.equal(response.statusCode, 200);

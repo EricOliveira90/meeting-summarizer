@@ -41,7 +41,8 @@ function makeJob(id: string, status: JobRecord['serverStatus']): JobRecord {
 }
 
 describe('GET /jobs — Job Listing API', () => {
-  const app = buildServer();
+  const apiKey = 'test-api-key';
+  const app = buildServer({ apiKey });
 
   beforeAll(async () => {
     await app.ready();
@@ -56,7 +57,7 @@ describe('GET /jobs — Job Listing API', () => {
       mockJobs.push(makeJob(`job-${i}`, 'COMPLETED'));
     }
 
-    const response = await app.inject({ method: 'GET', url: '/jobs' });
+    const response = await app.inject({ method: 'GET', url: '/jobs', headers: { 'x-api-key': apiKey } });
     expect(response.statusCode).toBe(200);
 
     const body = response.json();
@@ -71,7 +72,7 @@ describe('GET /jobs — Job Listing API', () => {
       mockJobs.push(makeJob(`job-${i}`, 'COMPLETED'));
     }
 
-    const response = await app.inject({ method: 'GET', url: '/jobs?page=2&limit=2' });
+    const response = await app.inject({ method: 'GET', url: '/jobs?page=2&limit=2', headers: { 'x-api-key': apiKey } });
     const body = response.json();
 
     expect(body.page).toBe(2);
@@ -87,7 +88,7 @@ describe('GET /jobs — Job Listing API', () => {
     mockJobs.push(makeJob('job-fail-1', 'FAILED'));
     mockJobs.push(makeJob('job-fail-2', 'FAILED'));
 
-    const response = await app.inject({ method: 'GET', url: '/jobs?status=FAILED' });
+    const response = await app.inject({ method: 'GET', url: '/jobs?status=FAILED', headers: { 'x-api-key': apiKey } });
     const body = response.json();
 
     expect(body.total).toBe(2);
@@ -96,7 +97,7 @@ describe('GET /jobs — Job Listing API', () => {
   });
 
   it('returns empty results when no jobs match', async () => {
-    const response = await app.inject({ method: 'GET', url: '/jobs?status=FAILED' });
+    const response = await app.inject({ method: 'GET', url: '/jobs?status=FAILED', headers: { 'x-api-key': apiKey } });
     const body = response.json();
 
     expect(body.total).toBe(0);
@@ -106,7 +107,7 @@ describe('GET /jobs — Job Listing API', () => {
   });
 
   it('defaults to page=1 and limit=20', async () => {
-    const response = await app.inject({ method: 'GET', url: '/jobs' });
+    const response = await app.inject({ method: 'GET', url: '/jobs', headers: { 'x-api-key': apiKey } });
     const body = response.json();
 
     expect(body.page).toBe(1);
@@ -116,7 +117,7 @@ describe('GET /jobs — Job Listing API', () => {
   it('does not expose internal file paths in response', async () => {
     mockJobs.push(makeJob('job-secret', 'COMPLETED'));
 
-    const response = await app.inject({ method: 'GET', url: '/jobs' });
+    const response = await app.inject({ method: 'GET', url: '/jobs', headers: { 'x-api-key': apiKey } });
     const body = response.json();
     const job = body.jobs[0];
 

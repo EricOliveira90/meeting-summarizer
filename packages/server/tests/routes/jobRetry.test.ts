@@ -53,7 +53,8 @@ function makeFailedJob(id: string): JobRecord {
 }
 
 describe('POST /jobs/:id/retry — Job Retry API', () => {
-  const app = buildServer();
+  const apiKey = 'test-api-key';
+  const app = buildServer({ apiKey });
 
   beforeAll(async () => {
     await app.ready();
@@ -65,7 +66,7 @@ describe('POST /jobs/:id/retry — Job Retry API', () => {
   });
 
   it('returns 404 for unknown job', async () => {
-    const response = await app.inject({ method: 'POST', url: '/jobs/nonexistent/retry' });
+    const response = await app.inject({ method: 'POST', url: '/jobs/nonexistent/retry', headers: { 'x-api-key': apiKey } });
     expect(response.statusCode).toBe(404);
     expect(response.json()).toEqual({ error: 'Job not found' });
   });
@@ -80,7 +81,7 @@ describe('POST /jobs/:id/retry — Job Retry API', () => {
       currentStep: JobStep.DONE,
     });
 
-    const response = await app.inject({ method: 'POST', url: '/jobs/job-ok/retry' });
+    const response = await app.inject({ method: 'POST', url: '/jobs/job-ok/retry', headers: { 'x-api-key': apiKey } });
     expect(response.statusCode).toBe(409);
     expect(response.json()).toEqual({ error: 'Only FAILED jobs can be retried' });
   });
@@ -88,7 +89,7 @@ describe('POST /jobs/:id/retry — Job Retry API', () => {
   it('retries a FAILED job — resets status to PENDING and clears error', async () => {
     mockJobs.push(makeFailedJob('job-retry'));
 
-    const response = await app.inject({ method: 'POST', url: '/jobs/job-retry/retry' });
+    const response = await app.inject({ method: 'POST', url: '/jobs/job-retry/retry', headers: { 'x-api-key': apiKey } });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ success: true, message: 'Job re-queued' });
 
@@ -101,7 +102,7 @@ describe('POST /jobs/:id/retry — Job Retry API', () => {
   it('retries a FAILED job — preserves completed step timestamps', async () => {
     mockJobs.push(makeFailedJob('job-retry-steps'));
 
-    await app.inject({ method: 'POST', url: '/jobs/job-retry-steps/retry' });
+    await app.inject({ method: 'POST', url: '/jobs/job-retry-steps/retry', headers: { 'x-api-key': apiKey } });
 
     const job = mockJobs.find(j => j.id === 'job-retry-steps')!;
     // Completed steps should be preserved
@@ -113,7 +114,7 @@ describe('POST /jobs/:id/retry — Job Retry API', () => {
   it('retries a FAILED job — re-queues the job', async () => {
     mockJobs.push(makeFailedJob('job-requeue'));
 
-    await app.inject({ method: 'POST', url: '/jobs/job-requeue/retry' });
+    await app.inject({ method: 'POST', url: '/jobs/job-requeue/retry', headers: { 'x-api-key': apiKey } });
 
     expect(mockQueuePush).toHaveBeenCalledWith({
       jobId: 'job-requeue',
