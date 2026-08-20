@@ -60,4 +60,12 @@ describe('release baseline', () => {
       'npm audit --omit=dev --audit-level=high',
     );
   });
+
+  it('exposes the built-runtime smoke command', () => {
+    const manifest = readJson<PackageManifest>('package.json');
+
+    expect(manifest.scripts?.['smoke:built']).toBe(
+      'node scripts/smoke-built-runtime.mjs',
+    );
+  });
 });

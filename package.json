@@ -13,7 +13,8 @@
     "start:client": "npm run start --workspace=packages/client",
     "test": "vitest run",
     "test:watch": "vitest",
-    "audit:production": "npm audit --omit=dev --audit-level=high"
+    "audit:production": "npm audit --omit=dev --audit-level=high",
+    "smoke:built": "node scripts/smoke-built-runtime.mjs"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
