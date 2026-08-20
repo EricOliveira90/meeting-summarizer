@@ -8,7 +8,7 @@ transcription through a private Google-hosted SSH bridge.
 
 The active product specification is
 `.kiro/specs/user-ready-meeting-processing/prd.md` and GitHub issue #32. Its
-child issues #33 through #43 are the approved vertical slices.
+child issues #33 through #47 are the approved implementation and acceptance slices.
 
 ## Product Invariants
 
