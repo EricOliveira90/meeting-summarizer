@@ -1,4 +1,5 @@
 import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import path from 'node:path';
 import {
   TranscriptionLanguage,
   AIPromptTemplate,
@@ -13,6 +14,13 @@ const ZONED_TIMESTAMP_PATTERN =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 const LANGUAGES = Object.values(TranscriptionLanguage);
 const TEMPLATES = Object.values(AIPromptTemplate);
+const MEDIA_TYPES: Record<string, string> = {
+  '.mkv': 'video/x-matroska',
+  '.mp3': 'audio/mpeg',
+  '.opus': 'audio/ogg',
+  '.m4a': 'audio/mp4',
+  '.wav': 'audio/wav',
+};
 
 interface SpeakerBound {
   valid: boolean;
@@ -123,6 +131,14 @@ export async function uploadRoutes(server: FastifyInstance) {
 
     if (!data) {
       return reply.status(400).send({ error: 'No file uploaded' });
+    }
+
+    const extension = path.extname(data.filename).toLowerCase();
+    if (MEDIA_TYPES[extension] !== data.mimetype) {
+      return reply.status(415).send({
+        code: 'UNSUPPORTED_MEDIA_TYPE',
+        error: 'Recording extension and MIME type are not a supported pair.',
+      });
     }
 
     const safeOriginalName = data.filename.replace(/[^a-zA-Z0-9.-]/g, '_');

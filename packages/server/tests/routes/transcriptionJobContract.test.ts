@@ -98,6 +98,36 @@ function createHarness() {
   return { app, artifacts, effects, jobQueue, jobs, jobStore };
 }
 
+async function submitRecording(
+  harness: ReturnType<typeof createHarness>,
+  url: string,
+  {
+    content = Buffer.from('recording'),
+    filename = 'meeting.wav',
+    contentType = 'audio/wav',
+    headers = {},
+  }: {
+    content?: Buffer;
+    filename?: string;
+    contentType?: string;
+    headers?: Record<string, string>;
+  } = {},
+) {
+  const multipart = multipartRecording(content, filename, contentType);
+  return harness.app.inject({
+    method: 'POST',
+    url,
+    headers: {
+      ...multipart.headers,
+      'x-api-key': API_KEY,
+      'x-job-id': 'job-123',
+      'x-recorded-at': '2026-04-01T10:30:00Z',
+      ...headers,
+    },
+    payload: multipart.payload,
+  });
+}
+
 describe.each(['/jobs', '/upload'])('POST %s creation contract', (url) => {
   it('stages, commits, persists, and queues one Recording through the shared path', async () => {
     const harness = createHarness();
@@ -243,5 +273,136 @@ describe.each(['/jobs', '/upload'])('POST %s creation contract', (url) => {
     expect(response.statusCode).toBe(400);
     expect(response.json()).toEqual(expected);
     expect(harness.effects).toEqual([]);
+  });
+
+  const supportedMedia = [
+    ['recording.mkv', 'video/x-matroska'],
+    ['recording.mp3', 'audio/mpeg'],
+    ['recording.opus', 'audio/ogg'],
+    ['recording.m4a', 'audio/mp4'],
+    ['recording.wav', 'audio/wav'],
+  ] as const;
+  const languages = ['auto', 'en', 'pt', 'es'] as const;
+
+  it.each(
+    supportedMedia.flatMap(([filename, contentType]) =>
+      languages.map((language) => ({ filename, contentType, language })),
+    ),
+  )('accepts $filename/$contentType with language $language', async ({ filename, contentType, language }) => {
+    const harness = createHarness();
+
+    const response = await submitRecording(harness, url, {
+      filename,
+      contentType,
+      headers: { 'x-language': language },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(harness.jobs[0]).toEqual(expect.objectContaining({
+      originalFilename: filename,
+      options: {
+        language,
+        template: 'meeting',
+      },
+    }));
+  });
+
+  it.each([
+    ['recording.flac', 'audio/flac'],
+    ['recording.wav', 'audio/mpeg'],
+  ])('rejects unsupported media pair %s/%s', async (filename, contentType) => {
+    const harness = createHarness();
+
+    const response = await submitRecording(harness, url, { filename, contentType });
+
+    expect(response.statusCode).toBe(415);
+    expect(response.json()).toEqual({
+      code: 'UNSUPPORTED_MEDIA_TYPE',
+      error: 'Recording extension and MIME type are not a supported pair.',
+    });
+    expect(harness.effects).toEqual([]);
+  });
+
+  it.each([
+    [undefined, 'meeting'],
+    ['meeting', 'meeting'],
+    ['training', 'training'],
+    ['summary', 'summary'],
+  ])('persists template header %s as %s', async (template, expected) => {
+    const harness = createHarness();
+    const headers = template === undefined ? {} : { 'x-template': template };
+
+    const response = await submitRecording(harness, url, { headers });
+
+    expect(response.statusCode).toBe(200);
+    expect(harness.jobs[0].options?.template).toBe(expected);
+  });
+
+  it.each([
+    [{}, { language: 'en', template: 'meeting' }],
+    [{ 'x-min-speakers': '2' }, { language: 'en', template: 'meeting', minSpeakers: 2 }],
+    [{ 'x-max-speakers': '5' }, { language: 'en', template: 'meeting', maxSpeakers: 5 }],
+    [{ 'x-min-speakers': '3', 'x-max-speakers': '3' }, { language: 'en', template: 'meeting', minSpeakers: 3, maxSpeakers: 3 }],
+    [{ 'x-min-speakers': '2', 'x-max-speakers': '5' }, { language: 'en', template: 'meeting', minSpeakers: 2, maxSpeakers: 5 }],
+  ])('persists exact sparse speaker options for %j', async (speakerHeaders, expected) => {
+    const harness = createHarness();
+
+    const response = await submitRecording(harness, url, {
+      headers: {
+        'x-language': 'en',
+        'x-template': 'meeting',
+        ...speakerHeaders,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(harness.jobs[0].options).toEqual(expected);
+  });
+
+  it.each([
+    {
+      name: 'one-character ID',
+      headers: { 'x-job-id': 'a' },
+      expectedId: 'a',
+      expectedTime: '2026-04-01T10:30:00.000Z',
+    },
+    {
+      name: '128-character ID',
+      headers: { 'x-job-id': 'a'.repeat(128) },
+      expectedId: 'a'.repeat(128),
+      expectedTime: '2026-04-01T10:30:00.000Z',
+    },
+    {
+      name: 'UTC timestamp',
+      headers: { 'x-recorded-at': '2026-04-01T10:30:00Z' },
+      expectedId: 'job-123',
+      expectedTime: '2026-04-01T10:30:00.000Z',
+    },
+    {
+      name: 'offset timestamp',
+      headers: { 'x-recorded-at': '2026-04-01T07:30:00-03:00' },
+      expectedId: 'job-123',
+      expectedTime: '2026-04-01T10:30:00.000Z',
+    },
+  ])('accepts $name', async ({ headers, expectedId, expectedTime }) => {
+    const harness = createHarness();
+
+    const response = await submitRecording(harness, url, { headers });
+
+    expect(response.statusCode).toBe(200);
+    expect(harness.jobs[0]).toEqual(expect.objectContaining({
+      id: expectedId,
+      recordedAt: expectedTime,
+    }));
+  });
+
+  it('retains the original filename and sanitizes only the artifact filename', async () => {
+    const harness = createHarness();
+
+    const response = await submitRecording(harness, url, { filename: 'team retro?.wav' });
+
+    expect(response.statusCode).toBe(200);
+    expect(harness.jobs[0].originalFilename).toBe('team retro?.wav');
+    expect(harness.artifacts.getUploadPath).toHaveBeenCalledWith('job-123', 'team_retro_.wav');
   });
 });
