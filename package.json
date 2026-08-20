@@ -12,7 +12,8 @@
     "start:server": "npm run start --workspace=packages/server",
     "start:client": "npm run start --workspace=packages/client",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "audit:production": "npm audit --omit=dev --audit-level=high"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",

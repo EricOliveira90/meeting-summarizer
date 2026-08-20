@@ -52,4 +52,12 @@ describe('release baseline', () => {
         'npm run build --workspace=packages/server',
     );
   });
+
+  it('uses the direct production audit as the sole security verdict', () => {
+    const manifest = readJson<PackageManifest>('package.json');
+
+    expect(manifest.scripts?.['audit:production']).toBe(
+      'npm audit --omit=dev --audit-level=high',
+    );
+  });
 });
