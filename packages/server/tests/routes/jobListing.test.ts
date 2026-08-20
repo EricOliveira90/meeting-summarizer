@@ -25,6 +25,12 @@ vi.mock('../../src/services/db', () => ({
     read: vi.fn(),
     write: vi.fn(),
   }),
+  jobStore: {
+    getAll: () => Promise.resolve(mockJobs),
+    getById: (id: string) => Promise.resolve(mockJobs.find((job) => job.id === id)),
+    replace: vi.fn(),
+    delete: vi.fn(),
+  },
 }));
 
 import { buildServer } from '../../src/index';

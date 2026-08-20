@@ -26,6 +26,12 @@ vi.mock('../../src/services/db', () => ({
     read: vi.fn(),
     write: mockWrite,
   }),
+  jobStore: {
+    getAll: () => Promise.resolve(mockJobs),
+    getById: (id: string) => Promise.resolve(mockJobs.find((job) => job.id === id)),
+    replace: vi.fn(),
+    delete: vi.fn(),
+  },
 }));
 
 // Mock file manager's deleteJobFiles

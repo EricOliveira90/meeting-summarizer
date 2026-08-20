@@ -4,13 +4,16 @@ import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
 import { FileManagerService } from './services/file-manager';
 import { meetingQueue } from './services/queue';
+import { jobStore } from './services/db';
 import { recoverStalledJobs, setupGracefulShutdown } from './services/recovery';
 import { healthRoutes } from './routes/health';
 import { uploadRoutes } from './routes/upload';
 import { jobRoutes } from './routes/jobs';
+import type { ServerDependencies } from './domain/ports';
 
 export interface BuildServerOptions {
   apiKey?: string;
+  dependencies?: Partial<ServerDependencies>;
 }
 
 export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
@@ -25,8 +28,13 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
   });
 
   // --- Services ---
-  const fileManager = new FileManagerService(process.cwd());
-  server.decorate('fileManager', fileManager);
+  const artifacts = options.dependencies?.artifacts ?? new FileManagerService(process.cwd());
+  const resolvedJobStore = options.dependencies?.jobStore ?? jobStore;
+  const jobQueue = options.dependencies?.jobQueue ?? meetingQueue;
+  server.decorate('fileManager', artifacts);
+  server.decorate('artifacts', artifacts);
+  server.decorate('jobStore', resolvedJobStore);
+  server.decorate('jobQueue', jobQueue);
 
   // --- Plugins ---
   server.register(cors, { origin: '*' });

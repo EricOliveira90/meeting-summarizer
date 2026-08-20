@@ -1,7 +1,10 @@
-import { FileManagerService } from '../services/file-manager';
+import type { ArtifactStore, JobQueue, JobStore } from '../domain/ports';
 
 declare module 'fastify' {
   interface FastifyInstance {
-    fileManager: FileManagerService;
+    fileManager: ArtifactStore;
+    artifacts: ArtifactStore;
+    jobQueue: JobQueue;
+    jobStore: JobStore;
   }
 }
