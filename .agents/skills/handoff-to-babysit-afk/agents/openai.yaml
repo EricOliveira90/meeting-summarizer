@@ -1,0 +1,6 @@
+interface:
+  display_name: "Handoff to Babysit AFK"
+  short_description: "Prepare a guarded AFK babysitting prompt"
+  default_prompt: "Use $handoff-to-babysit-afk to prepare the finalized PRD for a babysit-afk session."
+policy:
+  allow_implicit_invocation: false
