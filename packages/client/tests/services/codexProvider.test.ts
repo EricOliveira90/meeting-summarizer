@@ -236,4 +236,116 @@ describe('CodexProvider', () => {
       ),
     ).toEqual([]);
   });
+
+  it.each([
+    {
+      mode: 'authentication-failure',
+      expected: {
+        category: 'AUTHENTICATION',
+        retryable: false,
+        message: 'Codex authentication is unavailable.',
+      },
+    },
+    {
+      mode: 'permission-failure',
+      expected: {
+        category: 'PERMISSION',
+        retryable: false,
+        message: 'Codex permission was denied.',
+      },
+    },
+    {
+      mode: 'model-failure',
+      expected: {
+        category: 'MODEL',
+        retryable: false,
+        message: 'The selected Codex model is unavailable.',
+      },
+    },
+    {
+      mode: 'process-failure',
+      expected: {
+        category: 'PROCESS',
+        retryable: true,
+        message: 'Codex failed (exit 23).',
+      },
+    },
+  ])('classifies $mode without exposing child diagnostics', async ({
+    mode,
+    expected,
+  }) => {
+    const result = await createProvider(mode).summarize({
+      transcript: TRANSCRIPT_CANARY,
+      template: AIPromptTemplate.MEETING,
+    });
+
+    expect(result).toEqual({ success: false, error: expected });
+  });
+
+  it('classifies timeout, cancellation, and spawn failure', async () => {
+    const timedOut = new CodexProvider({
+      model: MODEL_CANARY,
+      executablePath: process.execPath,
+      executableArgs: [fakeCodexPath],
+      environment: {
+        ...process.env,
+        FAKE_CODEX_MODE: 'hang',
+      },
+      tempDirectory: tempDir,
+      timeoutMs: 20,
+    });
+    await expect(timedOut.summarize({
+      transcript: TRANSCRIPT_CANARY,
+      template: AIPromptTemplate.MEETING,
+    })).resolves.toEqual({
+      success: false,
+      error: {
+        category: 'TIMEOUT',
+        retryable: true,
+        message: 'Codex timed out.',
+      },
+    });
+
+    const controller = new AbortController();
+    const cancellation = createProvider('hang').summarize(
+      {
+        transcript: TRANSCRIPT_CANARY,
+        template: AIPromptTemplate.MEETING,
+      },
+      controller.signal,
+    );
+    await vi.waitFor(() => {
+      expect(
+        fs.readdirSync(tempDir).some((name) =>
+          name.startsWith('meeting-summarizer-codex-'),
+        ),
+      ).toBe(true);
+    });
+    controller.abort();
+    await expect(cancellation).resolves.toEqual({
+      success: false,
+      error: {
+        category: 'CANCELLED',
+        retryable: true,
+        message: 'Codex was cancelled.',
+      },
+    });
+
+    const spawnFailure = new CodexProvider({
+      model: MODEL_CANARY,
+      executablePath: path.join(tempDir, 'missing-codex'),
+      tempDirectory: tempDir,
+    });
+    await expect(spawnFailure.summarize({
+      transcript: TRANSCRIPT_CANARY,
+      template: AIPromptTemplate.MEETING,
+    })).resolves.toEqual({
+      success: false,
+      error: {
+        category: 'PROCESS',
+        retryable: false,
+        message: 'Codex could not be started.',
+      },
+    });
+  });
 });

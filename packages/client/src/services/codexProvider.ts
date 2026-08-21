@@ -7,6 +7,7 @@ import {
   CodexReadiness,
   SummaryInput,
   SummaryProvider,
+  SummaryProviderFailure,
   SummaryProviderResult,
 } from '../domain';
 import { SUMMARY_PROMPTS } from '../templates/summaryPrompts';
@@ -212,6 +213,61 @@ function normalizeFinalMessage(output: string): string {
   return output.replace(/\r\n/g, '\n').trim();
 }
 
+function classifyProcessFailure(
+  result: ProcessResult,
+): SummaryProviderFailure | undefined {
+  if (result.cancelled) {
+    return {
+      category: 'CANCELLED',
+      retryable: true,
+      message: 'Codex was cancelled.',
+    };
+  }
+  if (result.timedOut) {
+    return {
+      category: 'TIMEOUT',
+      retryable: true,
+      message: 'Codex timed out.',
+    };
+  }
+  if (result.spawnFailed) {
+    return {
+      category: 'PROCESS',
+      retryable: false,
+      message: 'Codex could not be started.',
+    };
+  }
+  if (result.stderr.includes('Not logged in')) {
+    return {
+      category: 'AUTHENTICATION',
+      retryable: false,
+      message: 'Codex authentication is unavailable.',
+    };
+  }
+  if (result.stderr.toLowerCase().includes('permission denied')) {
+    return {
+      category: 'PERMISSION',
+      retryable: false,
+      message: 'Codex permission was denied.',
+    };
+  }
+  if (result.stderr.includes('model "missing-model" is not supported')) {
+    return {
+      category: 'MODEL',
+      retryable: false,
+      message: 'The selected Codex model is unavailable.',
+    };
+  }
+  if (result.exitCode !== 0) {
+    return {
+      category: 'PROCESS',
+      retryable: true,
+      message: `Codex failed (exit ${result.exitCode ?? 'unknown'}).`,
+    };
+  }
+  return undefined;
+}
+
 export async function checkCodexReadiness(
   model: string,
   options: CodexProviderOptions = {},
@@ -339,22 +395,19 @@ export class CodexProvider implements SummaryProvider {
         };
       }
 
-      if (result.exitCode !== 0) {
-        return {
-          success: false,
-          error: {
-            category: 'PROCESS',
-            retryable: true,
-            message: `Codex failed (exit ${result.exitCode ?? 'unknown'}).`,
-          },
-        };
+      const processFailure = classifyProcessFailure(result);
+      if (processFailure) {
+        return { success: false, error: processFailure };
       }
 
-      const finalMessage = await readBoundedFile(
-        outputPath,
-        this.options.finalMessageLimitBytes ??
-          DEFAULT_FINAL_MESSAGE_LIMIT_BYTES,
-      );
+      let finalMessage = { output: '', overflow: false };
+      try {
+        finalMessage = await readBoundedFile(
+          outputPath,
+          this.options.finalMessageLimitBytes ??
+            DEFAULT_FINAL_MESSAGE_LIMIT_BYTES,
+        );
+      } catch {}
       if (finalMessage.overflow) {
         return {
           success: false,

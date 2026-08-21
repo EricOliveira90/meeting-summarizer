@@ -35,7 +35,13 @@ if (args[0] === '--version') {
     process.exitCode = 1;
   }
 } else if (args[0] === 'exec') {
-  if (mode === 'model-failure') {
+  if (mode === 'authentication-failure') {
+    process.stderr.write('Not logged in\n');
+    process.exitCode = 1;
+  } else if (mode === 'permission-failure') {
+    process.stderr.write('permission denied\n');
+    process.exitCode = 1;
+  } else if (mode === 'model-failure') {
     process.stderr.write('model "missing-model" is not supported\n');
     process.exitCode = 1;
   } else {
