@@ -56,6 +56,18 @@ describe('NodeFileSystem', () => {
         });
     });
 
+    describe('renameFile', () => {
+        it('should atomically rename the temporary file to the final path', async () => {
+            const temporaryPath = '/var/app/data/transcriptions/meeting.txt.job-123.tmp';
+            const finalPath = '/var/app/data/transcriptions/meeting.txt';
+
+            await fileSystem.renameFile(temporaryPath, finalPath);
+
+            expect(fsPromises.rename).toHaveBeenCalledWith(temporaryPath, finalPath);
+            expect(fsPromises.rename).toHaveBeenCalledTimes(1);
+        });
+    });
+
     describe('joinPathsInProjectFolder', () => {
         it('should prepend the baseDir and resolve OS-specific separators correctly', () => {
             // Note: We don't mock 'path' because it is a pure function (no I/O side effects).

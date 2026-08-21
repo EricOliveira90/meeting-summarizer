@@ -22,6 +22,10 @@ export class NodeFileSystem implements IFileManager {
         await fsPromises.writeFile(filePath, content, { encoding: 'utf-8' });
     }
 
+    public async renameFile(sourcePath: string, destinationPath: string): Promise<void> {
+        await fsPromises.rename(sourcePath, destinationPath);
+    }
+
     public joinPathsInProjectFolder(...parts: string[]): string {
         // Leverages Node's native path.join to handle OS-specific slashes (\ vs /) perfectly
         return path.join(this.baseDir, ...parts);
