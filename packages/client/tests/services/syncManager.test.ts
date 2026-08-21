@@ -35,6 +35,7 @@ describe('SyncManager', () => {
     // 3. Setup fresh mocks before each test
     mockApi = {
       uploadMeeting: vi.fn(),
+      getTranscript: vi.fn(),
       getJobStatus: vi.fn().mockRejectedValue(
         new SyncError('Job was not found.', false, 404, 'JOB_NOT_FOUND')
       ),
@@ -62,7 +63,10 @@ describe('SyncManager', () => {
     // NEW: Initialize mockFileSystem
     mockFileSystem = {
       joinPathsInProjectFolder: vi.fn().mockImplementation((...parts: string[]) => parts.join('/')),
-      writeFile: vi.fn().mockResolvedValue(undefined)
+      readFile: vi.fn(),
+      writeFile: vi.fn().mockResolvedValue(undefined),
+      renameFile: vi.fn().mockResolvedValue(undefined),
+      deleteFile: vi.fn().mockResolvedValue(undefined)
     };
 
     // NEW: Inject mockFileSystem into SyncManager
@@ -441,57 +445,33 @@ describe('SyncManager', () => {
   });
 
   describe('fetchResults() - Download Logic', () => {
-    
-    it('should save notes and mark as completed when payloads exist', async () => {
-      // Arrange
-      // FIXED: Added originalFilename to prevent regex crash
-      const fakeJob = { id: '789', clientStatus: ClientJobStatus.READY, originalFilename: 'meeting.mkv' };
-      mockDb.getReadyToFetch.mockResolvedValue([fakeJob]);
-      mockApi.getJobStatus.mockResolvedValue({ 
-        id: '789', 
-        summaryText: '# Meeting Summary', 
-        transcriptText: 'Hello world' 
-      });
-
-      // Act
-      await syncManager['fetchResults']();
-
-      // Assert
-      expect(mockNote.saveNote).toHaveBeenCalledWith(fakeJob, '# Meeting Summary', 'Hello world');
-      expect(mockDb.markCompleted).toHaveBeenCalledWith('789');
-    });
-
-    it('should save the transcript and summary to local .txt files to keep the DB lean', async () => {
-      // Arrange
-      const fakeJob = { 
-        id: '999', 
-        clientStatus: ClientJobStatus.READY, 
-        originalFilename: 'Q3_Planning_Meeting.mp3' 
+    it('atomically commits a verified Transcript and leaves the Job READY', async () => {
+      const transcript = 'Speaker 1: Exact Transcript\nSpeaker 2: Confirmed';
+      const fakeJob = {
+        id: 'job-123',
+        clientStatus: ClientJobStatus.READY,
+        originalFilename: 'Q3_Planning_Meeting.mp3'
       };
       mockDb.getReadyToFetch.mockResolvedValue([fakeJob]);
-      mockApi.getJobStatus.mockResolvedValue({ 
-        id: '999', 
-        summaryText: 'Summary content', 
-        transcriptText: 'Transcript content' 
-      });
+      mockApi.getTranscript.mockResolvedValue(transcript);
+      mockFileSystem.readFile.mockResolvedValue(transcript);
 
-      // Act
       await syncManager['fetchResults']();
-    
-      // Assert      
-      // 1. Verify path construction checks for the upward traversal and new file suffixes
-      expect(mockFileSystem.joinPathsInProjectFolder).toHaveBeenCalledWith('summaries', 'Q3_Planning_Meeting_summary.txt');
-      expect(mockFileSystem.joinPathsInProjectFolder).toHaveBeenCalledWith('transcriptions', 'Q3_Planning_Meeting_transcription.txt');
 
-      // 2. Verify file system writes (mockFileSystem.joinPathsInProjectFolder joins with '/' in our mock setup)
-      const expectedSummaryPath = ['summaries', 'Q3_Planning_Meeting_summary.txt'].join('/');
-      const expectedTranscriptPath = ['transcriptions', 'Q3_Planning_Meeting_transcription.txt'].join('/');
-      
-      expect(mockFileSystem.writeFile).toHaveBeenCalledWith(expectedSummaryPath, 'Summary content');
-      expect(mockFileSystem.writeFile).toHaveBeenCalledWith(expectedTranscriptPath, 'Transcript content');
-      
-      // 3. Ensure the DB is just marked completed, without storing the text
-      expect(mockDb.markCompleted).toHaveBeenCalledWith('999');
+      const finalPath = 'transcriptions/Q3_Planning_Meeting_transcription.txt';
+      const temporaryPath = `${finalPath}.job-123.tmp`;
+      expect(mockApi.getTranscript).toHaveBeenCalledWith('job-123');
+      expect(mockFileSystem.writeFile).toHaveBeenCalledWith(temporaryPath, transcript);
+      expect(mockFileSystem.readFile).toHaveBeenCalledWith(temporaryPath);
+      expect(mockFileSystem.renameFile).toHaveBeenCalledWith(temporaryPath, finalPath);
+      expect(mockFileSystem.deleteFile).not.toHaveBeenCalled();
+      expect(mockFileSystem.writeFile.mock.invocationCallOrder[0])
+        .toBeLessThan(mockFileSystem.readFile.mock.invocationCallOrder[0]);
+      expect(mockFileSystem.readFile.mock.invocationCallOrder[0])
+        .toBeLessThan(mockFileSystem.renameFile.mock.invocationCallOrder[0]);
+      expect(mockDb.updateStatus).not.toHaveBeenCalled();
+      expect(mockDb.markCompleted).not.toHaveBeenCalled();
+      expect(mockNote.saveNote).not.toHaveBeenCalled();
     });
   });
 });

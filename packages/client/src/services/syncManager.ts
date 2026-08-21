@@ -66,32 +66,27 @@ export class SyncManager {
 
     /**
      * The Artifact Downloader
-     * Retrieves final text payloads and saves them to local .txt files and Obsidian.
+     * Retrieves ready Transcripts and atomically commits verified local artifacts.
      */
     private async fetchResults(): Promise<void> {
         const readyJobs = await this.db.getReadyToFetch();
 
         for (const job of readyJobs) {
             try {
-                const finalPayload = await this.api.getJobStatus(job.id);
+                const transcript = await this.api.getTranscript(job.id);
+                const baseName = job.originalFilename.replace(/\.[^/.]+$/, "");
+                const transcriptPath = this.fs.joinPathsInProjectFolder(
+                    'transcriptions',
+                    `${baseName}_transcription.txt`
+                );
+                const temporaryPath = `${transcriptPath}.${job.id}.tmp`;
 
-                if (finalPayload.summaryText) {
-                    // Strip the media extension and create the .txt base name
-                    const baseName = job.originalFilename.replace(/\.[^/.]+$/, "");
-
-                    // NEW: Traverse up two levels from src/services to the package root
-                    const summaryPath = this.fs.joinPathsInProjectFolder('summaries', `${baseName}_summary.txt`);
-                    await this.fs.writeFile(summaryPath, finalPayload.summaryText);
-
-                    if (finalPayload.transcriptText) {
-                        const transcriptPath = this.fs.joinPathsInProjectFolder('transcriptions', `${baseName}_transcription.txt`);
-                        await this.fs.writeFile(transcriptPath, finalPayload.transcriptText);
-                    }
-
-                    // Pre-existing logic: Save to Obsidian and mark as complete
-                    await this.note.saveNote(job, finalPayload.summaryText, finalPayload.transcriptText)
-                    await this.db.markCompleted(job.id);
+                await this.fs.writeFile(temporaryPath, transcript);
+                const verifiedTranscript = await this.fs.readFile(temporaryPath);
+                if (verifiedTranscript !== transcript) {
+                    throw new Error('Transcript verification mismatch');
                 }
+                await this.fs.renameFile(temporaryPath, transcriptPath);
             } catch (error) {
                 // If tunnel drops during fetch, catch and leave as READY to try next time.
                 console.error(`Failed to fetch results for ${job.id}`, error);
