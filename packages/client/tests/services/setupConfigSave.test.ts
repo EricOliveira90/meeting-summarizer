@@ -170,11 +170,10 @@ describe('Setup: Config Save Round-Trip', () => {
         );
         const log = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-        const result = await runSetup({
+        await runSetup({
             checkCodexReadiness: readiness(mode),
         });
 
-        expect(result).toEqual(expected);
         expect(mockSet).toHaveBeenCalledWith('defaultProvider', 'codex');
         expect(mockSet).toHaveBeenCalledWith('codex', { model });
         expect(log).toHaveBeenCalledWith(

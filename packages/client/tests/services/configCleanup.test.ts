@@ -37,9 +37,13 @@ describe('Config Model: AudioRecConfig', () => {
                 availableTemplates: {} as any,
                 activeTemplateName: 'Internal Meeting' as any,
             },
+            defaultProvider: 'codex',
+            codex: { model: 'gpt-5-codex' },
         } satisfies AppConfig;
 
         expect(config.audioRec).toBeDefined();
+        expect(config.defaultProvider).toBe('codex');
+        expect(config.codex.model).toBe('gpt-5-codex');
         expect((config as any).obs).toBeUndefined();
     });
 });

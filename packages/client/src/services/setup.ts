@@ -9,7 +9,7 @@ export interface SetupDependencies {
 
 export async function runSetup(
   dependencies: SetupDependencies = {},
-): Promise<CodexReadiness> {
+): Promise<void> {
   console.log('Welcome to Meeting Summarizer Setup');
   
   // Fetch current configs using the new typed getter
@@ -104,7 +104,6 @@ export async function runSetup(
   // Accessing the internal store path for user debug info
   // We cast to 'any' here because 'store' is private, but helpful to show the user.
   console.log('Config file location:', (configService as any).store.path);
-  return readiness;
 }
 
 // Basic check to see if running directly
