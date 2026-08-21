@@ -3,16 +3,24 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { CodexReadiness } from '../domain';
+import {
+  CodexReadiness,
+  SummaryInput,
+  SummaryProvider,
+  SummaryProviderResult,
+} from '../domain';
+import { SUMMARY_PROMPTS } from '../templates/summaryPrompts';
 
 const MANAGED_CREDENTIAL_MESSAGE =
   'Login is not required. OpenAI Codex uses Bedrock via managed credentials.';
 const WRAPPER_ERROR_PREFIX = 'codex-wrapper: error: ';
 
 export interface CodexProviderOptions {
+  model?: string;
   executablePath?: string;
   executableArgs?: string[];
   environment?: NodeJS.ProcessEnv;
+  tempDirectory?: string;
 }
 
 interface ProcessResult {
@@ -169,5 +177,51 @@ export async function checkCodexReadiness(
     };
   } finally {
     await fs.rm(outputPath, { force: true });
+  }
+}
+
+export class CodexProvider implements SummaryProvider {
+  public readonly name = 'codex';
+  private readonly model: string;
+
+  constructor(private readonly options: CodexProviderOptions = {}) {
+    this.model = options.model ?? 'gpt-5-codex';
+  }
+
+  public checkAvailability(): Promise<CodexReadiness> {
+    return checkCodexReadiness(this.model, this.options);
+  }
+
+  public async summarize(
+    input: SummaryInput,
+    _signal?: AbortSignal,
+  ): Promise<SummaryProviderResult> {
+    const outputPath = path.join(
+      this.options.tempDirectory ?? os.tmpdir(),
+      `meeting-summarizer-codex-${randomUUID()}.txt`,
+    );
+    const prompt =
+      `${SUMMARY_PROMPTS[input.template]}\n\nTranscript:\n${input.transcript}`;
+    const result = await runProcess(
+      codexExecArgs(this.model, outputPath),
+      this.options,
+      prompt,
+    );
+
+    if (result.exitCode !== 0) {
+      return {
+        success: false,
+        error: {
+          category: 'PROCESS',
+          retryable: true,
+          message: `Codex failed (exit ${result.exitCode ?? 'unknown'}).`,
+        },
+      };
+    }
+
+    return {
+      success: true,
+      summary: await fs.readFile(outputPath, 'utf8'),
+    };
   }
 }

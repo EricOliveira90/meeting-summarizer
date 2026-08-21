@@ -1,4 +1,5 @@
 import { UploadOptions, UploadResponse, Job, JobResponse } from "@meeting-summarizer/shared";
+import { AIPromptTemplate } from "@meeting-summarizer/shared";
 import { ClientJob, ClientJobStatus, HealthStatus, Meeting, MeetingStatus, CreateMeetingInput } from "./models";
 
 export type ProviderReadinessStatus = 'ready' | 'failed' | 'not_checked';
@@ -12,6 +13,39 @@ export interface CodexReadiness {
   executable: ProviderReadinessResult;
   authentication: ProviderReadinessResult;
   model: ProviderReadinessResult;
+}
+
+export type SummaryFailureCategory =
+  | 'AUTHENTICATION'
+  | 'PERMISSION'
+  | 'MODEL'
+  | 'TIMEOUT'
+  | 'CANCELLED'
+  | 'MALFORMED_OUTPUT'
+  | 'PROCESS';
+
+export interface SummaryProviderFailure {
+  category: SummaryFailureCategory;
+  retryable: boolean;
+  message: string;
+}
+
+export interface SummaryInput {
+  transcript: string;
+  template: AIPromptTemplate;
+}
+
+export type SummaryProviderResult =
+  | { success: true; summary: string }
+  | { success: false; error: SummaryProviderFailure };
+
+export interface SummaryProvider {
+  readonly name: 'codex';
+  checkAvailability(): Promise<CodexReadiness>;
+  summarize(
+    input: SummaryInput,
+    signal?: AbortSignal,
+  ): Promise<SummaryProviderResult>;
 }
 
 export interface IIngestion {

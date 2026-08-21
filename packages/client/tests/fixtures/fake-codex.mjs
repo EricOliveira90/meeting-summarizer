@@ -35,6 +35,15 @@ if (args[0] === '--version') {
     process.exitCode = 1;
   } else {
     const outputIndex = args.indexOf('--output-last-message');
-    fs.writeFileSync(args[outputIndex + 1], ' \r\nREADY\r\n ');
+    if (mode === 'summary-success') {
+      process.stdout.write('STDOUT IS NOT THE SUMMARY');
+      process.stderr.write('STDERR IS NOT THE SUMMARY');
+      fs.writeFileSync(
+        args[outputIndex + 1],
+        '## Training Summary\n\n- Exact final message',
+      );
+    } else {
+      fs.writeFileSync(args[outputIndex + 1], ' \r\nREADY\r\n ');
+    }
   }
 }
