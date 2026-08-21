@@ -8,7 +8,11 @@ import {
   TranscriptionLanguage,
   type JobResponse,
 } from '@meeting-summarizer/shared';
-import { ClientJobStatus, type ClientJob } from '../../src/domain';
+import {
+  ClientJobStatus,
+  type ClientJob,
+  type IFileManager,
+} from '../../src/domain';
 import { runSync } from '../../src/commands/sync';
 import { ApiService } from '../../src/services/api';
 import { configService } from '../../src/services/config';
@@ -68,6 +72,18 @@ interface ProcessingFailureOutcome {
   notebookTranscripts: string[];
 }
 
+type TransferFault = 'write' | 'read' | 'mismatch' | 'rename' | 'interrupted';
+
+interface TransferFailureOutcome {
+  fault: TransferFault;
+  clientJobs: ClientJob[];
+  serverJobs: JobRecord[];
+  creationRequests: number;
+  finalTranscript: string;
+  temporaryFiles: string[];
+  diagnostic: string;
+}
+
 describe('Existing Recording to downloaded Transcript', () => {
   it('moves one persisted Recording through ordered server states to one atomic local Transcript', async () => {
     const outcome = await runIntegratedSuccessJourney();
@@ -120,7 +136,7 @@ describe('Existing Recording to downloaded Transcript', () => {
     expect(outcome.summaryArtifacts).toEqual([]);
     expect(outcome.publicationArtifacts).toEqual([]);
     expect(outcome.noteCalls).toBe(0);
-  });
+  }, 30_000);
 
   it('rejects missing auth, wrong auth, and invalid language without creating a Job', async () => {
     const outcome = await runCreationRejectionJourney();
@@ -151,7 +167,7 @@ describe('Existing Recording to downloaded Transcript', () => {
     expect(outcome.serverJobs).toEqual([]);
     expect(outcome.queuePushes).toBe(0);
     expect(outcome.notebookTranscripts).toEqual([]);
-  });
+  }, 30_000);
 
   it('preserves extraction and transcription failure attribution without partial Transcripts', async () => {
     const outcomes = await runProcessingFailureJourneys();
@@ -178,7 +194,37 @@ describe('Existing Recording to downloaded Transcript', () => {
       expectRedactedStatus(outcome.status, outcome.artifactRoot);
       expect(outcome.notebookTranscripts).toEqual([]);
     }
-  });
+  }, 30_000);
+
+  it('preserves an existing Transcript across local faults and an interrupted download', async () => {
+    const outcomes = await runTransferFailureJourneys();
+
+    expect(outcomes.map(({ fault }) => fault)).toEqual([
+      'write',
+      'read',
+      'mismatch',
+      'rename',
+      'interrupted',
+    ]);
+    for (const outcome of outcomes) {
+      expect(outcome.creationRequests).toBe(0);
+      expect(outcome.clientJobs).toHaveLength(1);
+      expect(outcome.serverJobs).toHaveLength(1);
+      expect(outcome.clientJobs[0]).toMatchObject({
+        id: outcome.serverJobs[0].id,
+        clientStatus: ClientJobStatus.READY,
+        retryCount: 0,
+      });
+      expect(outcome.finalTranscript).toBe('prior Transcript sentinel');
+      expect(outcome.temporaryFiles).toEqual([]);
+      expect(outcome.diagnostic).toMatch(
+        new RegExp(
+          `^Transcript download failed for ${outcome.clientJobs[0].id}; ` +
+          'retry on next Manual Sync: .+',
+        ),
+      );
+    }
+  }, 30_000);
 });
 
 function expectOrderedTimestamps(job: JobRecord): void {
@@ -636,6 +682,218 @@ async function runProcessingFailureJourney(
       notebookTranscripts: await listFiles(
         path.join(clientRoot, 'transcriptions'),
       ),
+    };
+  } finally {
+    errorLog.mockRestore();
+    await app.close();
+    await new Promise<void>((resolve) => queue.destroy(resolve));
+    api.resetClient();
+    configGet.mockRestore();
+    process.chdir(originalCwd);
+    await fs.rm(root, { recursive: true, force: true });
+  }
+}
+
+async function runTransferFailureJourneys(): Promise<
+  TransferFailureOutcome[]
+> {
+  const outcomes: TransferFailureOutcome[] = [];
+  for (const fault of [
+    'write',
+    'read',
+    'mismatch',
+    'rename',
+    'interrupted',
+  ] satisfies TransferFault[]) {
+    outcomes.push(await runTransferFailureJourney(fault));
+  }
+  return outcomes;
+}
+
+async function runTransferFailureJourney(
+  fault: TransferFault,
+): Promise<TransferFailureOutcome> {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'transfer-failure-'));
+  const clientRoot = path.join(root, 'notebook');
+  const serverRoot = path.join(root, 'server');
+  const recordingPath = path.join(
+    clientRoot,
+    'recordings',
+    `transfer-${fault}.mkv`,
+  );
+  await fs.mkdir(serverRoot, { recursive: true });
+  const nodeFileSystem = new NodeFileSystem(clientRoot);
+  await nodeFileSystem.writeFile(recordingPath, 'existing Recording bytes');
+
+  const originalCwd = process.cwd();
+  vi.resetModules();
+  process.chdir(serverRoot);
+  const [{ buildServer }, { jobStore }, { FileManagerService }, queueModule] =
+    await Promise.all([
+      import('../../../server/src/index'),
+      import('../../../server/src/services/db'),
+      import('../../../server/src/services/file-manager'),
+      import('../../../server/src/services/queue'),
+    ]);
+  process.chdir(originalCwd);
+
+  const artifacts = new FileManagerService(serverRoot);
+  await artifacts.ensureDirectories();
+  const queue = queueModule.createMeetingQueue({
+    jobStore,
+    artifacts,
+    audioExtractor: {
+      convertToWav: vi.fn(async () => {
+        throw new Error('Transfer retry unexpectedly reached extraction.');
+      }),
+    },
+    transcriber: {
+      transcribe: vi.fn(async () => {
+        throw new Error('Transfer retry unexpectedly reached transcription.');
+      }),
+    },
+  }) as ReturnType<typeof queueModule.createMeetingQueue> & {
+    destroy(callback: () => void): void;
+  };
+  const app = buildServer({
+    apiKey: API_KEY,
+    dependencies: { artifacts, jobQueue: queue, jobStore },
+  });
+  let creationRequests = 0;
+  app.server.on('request', (request) => {
+    if (request.method === 'POST' && request.url === '/jobs') {
+      creationRequests += 1;
+    }
+  });
+  await app.listen({ host: '127.0.0.1', port: 0 });
+  const address = app.server.address();
+  if (!address || typeof address === 'string') {
+    throw new Error('Acceptance server did not expose a TCP port.');
+  }
+
+  const originalConfigGet = configService.get.bind(configService);
+  const configGet = vi.spyOn(configService, 'get').mockImplementation(
+    ((key: Parameters<typeof configService.get>[0]) => {
+      if (key === 'server') {
+        return {
+          ip: '127.0.0.1',
+          port: address.port,
+          apiKey: API_KEY,
+        };
+      }
+      return originalConfigGet(key);
+    }) as typeof configService.get,
+  );
+  const api = new ApiService();
+  const db = new LowDB(
+    nodeFileSystem,
+    path.join(clientRoot, 'client-db.json'),
+  );
+  const persistedJob = await db.addRecording(recordingPath, RECORDED_AT);
+  await db.updateOptions(persistedJob.id, {
+    language: TranscriptionLanguage.ENGLISH,
+    template: AIPromptTemplate.MEETING,
+  });
+  await db.updateStatus(persistedJob.id, ClientJobStatus.READY);
+
+  const transcriptPath = nodeFileSystem.joinPathsInProjectFolder(
+    'transcriptions',
+    `transfer-${fault}_transcription.txt`,
+  );
+  const temporaryPath = `${transcriptPath}.${persistedJob.id}.tmp`;
+  await nodeFileSystem.writeFile(
+    transcriptPath,
+    'prior Transcript sentinel',
+  );
+  const serverTranscriptPath = artifacts.getTranscriptPath(persistedJob.id);
+  await fs.writeFile(serverTranscriptPath, TRANSCRIPT);
+  await jobStore.replace({
+    id: persistedJob.id,
+    originalFilename: persistedJob.originalFilename,
+    filePath: artifacts.getUploadPath(
+      persistedJob.id,
+      persistedJob.originalFilename,
+    ),
+    transcriptPath: serverTranscriptPath,
+    recordedAt: NORMALIZED_RECORDED_AT,
+    serverStatus: 'COMPLETED',
+    currentStep: JobStep.TRANSCRIPT_READY,
+    options: persistedJob.options,
+  });
+
+  if (fault === 'interrupted') {
+    app.server.prependListener('request', (request, response) => {
+      if (request.url !== `/jobs/${persistedJob.id}/transcript`) return;
+      response.end = ((chunk?: unknown) => {
+        if (chunk !== undefined) {
+          const body = Buffer.isBuffer(chunk)
+            ? chunk
+            : Buffer.from(String(chunk));
+          response.write(body.subarray(0, Math.min(16, body.length)));
+        }
+        response.socket?.destroy();
+        return response;
+      }) as typeof response.end;
+    });
+  }
+
+  const fileManager: IFileManager = {
+    readFile: async (filePath) => {
+      if (fault === 'read' && filePath === temporaryPath) {
+        throw new Error('verification read failed');
+      }
+      return nodeFileSystem.readFile(filePath);
+    },
+    writeFile: async (filePath, content) => {
+      if (fault === 'write' && filePath === temporaryPath) {
+        throw new Error('write failed');
+      }
+      await nodeFileSystem.writeFile(
+        filePath,
+        fault === 'mismatch' && filePath === temporaryPath
+          ? 'mismatched Transcript'
+          : content,
+      );
+    },
+    renameFile: async (sourcePath, destinationPath) => {
+      if (fault === 'rename' && sourcePath === temporaryPath) {
+        throw new Error('rename failed');
+      }
+      await nodeFileSystem.renameFile(sourcePath, destinationPath);
+    },
+    deleteFile: (filePath) => nodeFileSystem.deleteFile(filePath),
+    fileExists: (filePath) => nodeFileSystem.fileExists(filePath),
+    joinPathsInProjectFolder: (...parts) =>
+      nodeFileSystem.joinPathsInProjectFolder(...parts),
+    joinPaths: (...parts) => nodeFileSystem.joinPaths(...parts),
+  };
+  const syncManager = new SyncManager(
+    api,
+    db,
+    { saveNote: vi.fn() },
+    {
+      scanDirectory: vi.fn(async () => {}),
+      ingestFile: vi.fn(async () => {}),
+    },
+    fileManager,
+  );
+  const diagnostics: string[] = [];
+  const errorLog = vi.spyOn(console, 'error').mockImplementation((...args) => {
+    diagnostics.push(args.map(String).join(' '));
+  });
+
+  try {
+    await runSync(syncManager);
+
+    return {
+      fault,
+      clientJobs: await db.getAll(),
+      serverJobs: (await jobStore.getAll()).map((job) => structuredClone(job)),
+      creationRequests,
+      finalTranscript: await nodeFileSystem.readFile(transcriptPath),
+      temporaryFiles: (await listFiles(path.dirname(transcriptPath)))
+        .filter((file) => file.endsWith('.tmp')),
+      diagnostic: diagnostics.join('\n'),
     };
   } finally {
     errorLog.mockRestore();
