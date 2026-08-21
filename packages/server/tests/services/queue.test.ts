@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { JobStep } from '@meeting-summarizer/shared';
 import type { JobRecord } from '../../src/domain/models';
 import {
+  createMeetingQueue,
   createInitialSteps,
   processMeetingJob,
   type ProcessingDependencies,
@@ -59,6 +60,14 @@ function createHarness(overrides: {
     transcriptPath,
     transcribe,
   };
+}
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((release) => {
+    resolve = release;
+  });
+  return { promise, resolve };
 }
 
 describe('Queue Processor - Step Tracking', () => {
@@ -169,4 +178,72 @@ describe('Queue Processor - Step Tracking', () => {
     expect(harness.job.audioPath).toBe(audioPath);
     expect(harness.job.transcriptPath).toBe(transcriptPath);
   });
+});
+
+describe('Meeting queue serialization', () => {
+  it('does not start a second queued Job while the first process adapter is blocked', async () => {
+    const first = makeJob({ id: 'first', filePath: '/uploads/first.wav' });
+    const second = makeJob({ id: 'second', filePath: '/uploads/second.wav' });
+    const jobs = [first, second];
+    const firstEntered = deferred();
+    const releaseFirst = deferred();
+    const secondEntered = deferred();
+    const secondCompleted = deferred();
+    const dependencies: ProcessingDependencies = {
+      jobStore: {
+        getById: vi.fn(async (id: string) => jobs.find((job) => job.id === id)),
+        replace: vi.fn(async (job: JobRecord) => {
+          if (
+            job.id === second.id &&
+            job.currentStep === JobStep.TRANSCRIPT_READY &&
+            job.serverStatus === 'COMPLETED'
+          ) {
+            secondCompleted.resolve();
+          }
+        }),
+      },
+      artifacts: {
+        getAudioPath: vi.fn((id: string) => `/audio/${id}.wav`),
+        getTranscriptPath: vi.fn((id: string) => `/transcripts/${id}.txt`),
+        fileExists: vi.fn(async () => true),
+      },
+      audioExtractor: {
+        convertToWav: vi.fn(async (inputPath: string, outputPath: string) => {
+          if (inputPath === first.filePath) {
+            firstEntered.resolve();
+            await releaseFirst.promise;
+          } else {
+            secondEntered.resolve();
+          }
+          return { audioPath: outputPath };
+        }),
+      },
+      transcriber: {
+        transcribe: vi.fn(async (_audioPath: string, outputFilePath: string) => ({
+          outputFilePath,
+        })),
+      },
+    };
+    const queue = createMeetingQueue(dependencies) as any;
+
+    try {
+      queue.push({ jobId: first.id, filePath: first.filePath });
+      queue.push({ jobId: second.id, filePath: second.filePath });
+      await firstEntered.promise;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(second.serverStatus).toBe('PENDING');
+      expect(second.currentStep).toBe(JobStep.QUEUED);
+      expect(dependencies.audioExtractor.convertToWav).not.toHaveBeenCalledWith(
+        second.filePath,
+        expect.any(String),
+      );
+
+      releaseFirst.resolve();
+      await secondEntered.promise;
+      await secondCompleted.promise;
+    } finally {
+      await new Promise<void>((resolve) => queue.destroy(resolve));
+    }
+  }, 10_000);
 });
