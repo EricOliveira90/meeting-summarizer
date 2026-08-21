@@ -6,10 +6,10 @@ Part of #32.
 
 ## What to build
 
-Use the schema-v2 store from #49 to persist a Recording attempt before the
+Use the wired schema-v2 store from #51 to persist a Recording attempt before the
 recorder starts, await the recorder's terminal outcome, and atomically create
 one linked `RECORDED` Job only after a usable completed Recording. This slice
-owns recorder intake only; #49 owns schema migration and legacy compatibility,
+owns recorder intake only; #49-#51 own schema, migration, and compatibility,
 and #35 owns automatic processing after `RECORDED`.
 
 ## Acceptance criteria

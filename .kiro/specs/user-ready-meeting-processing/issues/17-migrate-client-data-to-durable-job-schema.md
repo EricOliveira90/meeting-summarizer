@@ -1,4 +1,4 @@
-# Migrate Client Data to the Durable Job Schema
+# Define and Validate the Durable Client Store Schema
 
 ## Parent
 
@@ -6,11 +6,11 @@ Part of #32.
 
 ## What to build
 
-Establish the notebook's schema-v2 persistence boundary before recorder intake.
-Migrate the current LowDB database through a byte-identical restorable backup,
-lock the canonical Job and Recording-attempt JSON shapes, and preserve current
-client callers through an exact compatibility mapping. This slice performs no
-recording or workflow execution.
+Define the notebook-owned schema-v2 Job and Recording-attempt types and a pure,
+fail-closed validator for schema v1 and v2. This slice performs no filesystem
+migration, LowDB wiring, compatibility projection, recording, or workflow
+execution. #50 consumes this validator for migration, and #51 wires the migrated
+store through existing client callers.
 
 ## Canonical schema-v2 contract
 
@@ -82,57 +82,94 @@ type RecordingAttempt = {
 };
 ```
 
-The optional note template is the snapshotted Publication choice. Every
-operation key is present in `operationAttempts`. SHA-256 values are lowercase
-64-character hex strings, byte counts and attempt counts are non-negative
-integers, IDs and paths are non-empty strings, enums accept only the values
-above, and generated timestamps are valid UTC ISO-8601 strings.
+Every operation key is present. IDs, paths, filenames, failure messages, and
+models are non-empty strings. Counts and speaker bounds are non-negative
+integers, and `minSpeakers <= maxSpeakers` when both exist. SHA-256 values are
+lowercase 64-character hex strings.
 
-## Accepted and rejected data
+## Accepted schema v1
 
-- Valid schema v1 is a plain object with required `jobs`, optional `meetings`,
-  and optional `schemaVersion`; no other root keys are accepted.
-  `schemaVersion` is absent or `1`, `jobs` is an array, and absent `meetings`
+- The root is an object with required `jobs`, optional `meetings`, and optional
+  absent/`1` `schemaVersion`; no other root key is accepted. Absent `meetings`
   means `[]`.
-- A v1 Job requires non-empty string `id`, `filePath`, `originalFilename`, and
-  `recordedAt`; a canonical legacy status; and integer `retryCount >= 0`.
-  Optional `options`, error, step, note-template, and Meeting fields must match
-  their current enums/types. Unknown JSON-valued entry fields are accepted and
-  preserved in `legacy`.
-- A v1 Meeting requires every current required Meeting field with current
-  enum/array/number/string types. Optional speaker bounds, note template, and
-  `jobId` must match their current types. Unknown JSON-valued Meeting fields
-  remain unchanged.
-- Valid schema v2 has exactly the four root keys. Jobs and attempts reject
-  missing required fields, unknown fields outside `legacy`, wrong nested types,
-  invalid enums, negative/non-integer counts, duplicate stage entries, invalid
-  timestamp ordering, malformed evidence, and missing operation keys. Meetings
-  use the v1 Meeting validation rule.
-- Null/array roots, missing/non-array collections, unknown root keys, invalid
-  entries, schema versions other than 1 or 2, and non-JSON values fail closed.
-  Opening rejected data reports the field path and reason and does not rewrite
-  any database byte.
+- A Job requires non-empty `id`, `filePath`, `originalFilename`, and
+  `recordedAt`; one current `ClientJobStatus`; and integer `retryCount >= 0`.
+  Optional `options`, `error`, `currentStep`, `failedStep`, `noteTemplate`, and
+  `meetingId` must match current types and enums. Optional IDs are non-empty
+  when present. Unknown entry fields are accepted only when JSON-valued.
+- A Meeting requires every current field. `id`, `title`, `scheduledAt`, and
+  `createdAt` are non-empty; attendees are strings; enums and speaker bounds
+  use current values and integer rules; optional `jobId` is non-empty. Unknown
+  JSON-valued Meeting fields are preserved by #50.
+- Legacy date strings remain opaque non-empty strings. V1 validation does not
+  require them to be parseable timestamps.
+
+## Accepted schema v2
+
+- The root has exactly the four canonical keys. Jobs and attempts reject
+  unknown fields outside `legacy`; Meetings use the accepted-v1 Meeting shape.
+- Generated timestamps are calendar-valid UTC
+  `YYYY-MM-DDTHH:mm:ss[.fraction]Z` instants.
+- A Job has a non-empty `stageTimestamps`. The first entry is `RECORDED` with
+  `startedAt === recordedAt`; stages are unique; the final entry is the current
+  `stage` and has no `completedAt`; every prior entry has
+  `startedAt <= completedAt <= next.startedAt`.
+- Transcript evidence requires a timestamp for
+  `TRANSCRIPT_READY|DOWNLOADING|SUMMARIZING|COMPLETED`. Summary evidence
+  requires a `COMPLETED` timestamp. Evidence `committedAt` is at or after
+  `recordedAt` and its first supporting stage start.
+- `nextAttemptAt` is at or after the current-stage start.
+  `lastReconciledAt` is at or after `recordedAt`.
+- A Recording attempt validates only its own times:
+  `completedAt >= startedAt` when present. `RECORDING` has no completion,
+  error, actual path, or Job ID. `RECORDED` requires completion, actual path,
+  and Job ID and has no error. `FAILED` requires completion and error and has
+  no Job ID. `CANCELLED` requires completion, has no error, and has no Job ID.
+
+## Validation diagnostics
+
+Validation returns either typed data or:
+
+```ts
+{
+  code: 'CLIENT_DB_INVALID';
+  fieldPath: string;
+  reason: ValidationReason;
+  message: `Invalid client database at ${fieldPath}: ${reason}`;
+}
+```
+
+`fieldPath` is an RFC 6901 URI-fragment JSON Pointer: `#` is root, tokens append
+as `/token`, and `~`/`/` escape as `~0`/`~1`. `ValidationReason` is exactly:
+
+`MALFORMED_JSON|NON_JSON_VALUE|EXPECTED_OBJECT|EXPECTED_ARRAY|EXPECTED_STRING|`
+`EXPECTED_NON_EMPTY_STRING|EXPECTED_NUMBER|EXPECTED_BOOLEAN|`
+`EXPECTED_NON_NEGATIVE_INTEGER|MISSING_FIELD|UNKNOWN_FIELD|`
+`INVALID_SCHEMA_VERSION|INVALID_ENUM|INVALID_TIMESTAMP|`
+`INVALID_TIMESTAMP_ORDER|DUPLICATE_STAGE|MISSING_OPERATION_KEY|INVALID_SHA256`.
+
+Each test fixture has one defect unless it is an explicit precedence row.
+Overlapping defects use this precedence:
+
+1. malformed JSON, non-JSON values, then container kind;
+2. required fields, with missing operation names reported as
+   `MISSING_OPERATION_KEY` and every other missing field as `MISSING_FIELD`;
+3. primitive type (`EXPECTED_*`);
+4. non-empty and non-negative constraints;
+5. schema version, enum, timestamp, and SHA-256 format;
+6. duplicate stage, timestamp ordering, then unknown field.
+
+Thus a numeric enum is `EXPECTED_STRING`, a missing operation key is
+`MISSING_OPERATION_KEY`, and a non-string hash is `EXPECTED_STRING`.
 
 ## Acceptance criteria
 
-- [ ] An absent database initializes directly as empty v2 without creating a backup.
-- [ ] Before the first v2 write, exact v1 bytes are copied to sibling `<database>.v1-<YYYYMMDDTHHmmssSSSZ>.bak`; collisions append `-2`, `-3`, and so on without overwrite.
-- [ ] Migration reads back and byte-compares the backup, writes and parses a unique sibling temporary v2 file, and only then renames it over the database. Any read, backup, compare, serialize, temporary-write, parse, or rename failure leaves the original bytes unchanged and reports the failed operation.
-- [ ] Restoring backup bytes over the migrated file migrates again with every original Job and Meeting field unchanged. Reopening valid v2 performs no write and creates no backup.
-- [ ] Migration preserves stable Job IDs, Recording paths/times, Meeting linkage, processing choices, provider/templates, errors, retries, and the full original Job under `legacy`. Orphan Jobs receive deterministic collision-free synthetic Meetings and a required `meetingId`.
-- [ ] Missing legacy choices fall back through Job, linked Meeting, then current config/defaults. Provider/model come from current Codex config; language defaults to `auto`; Summary template defaults to `meeting`; optional note template is preserved.
-- [ ] `WAITING_UPLOAD`, `UPLOADING`, and `PROCESSING` map to `RECORDED`. `FAILED` and `ABANDONED` map to `FAILED` with operation `RECONCILE`, resume `RECORDED`, preserved error, and retryability true only for `FAILED`. `DELETED` maps to `CANCELLED`.
-- [ ] Derive legacy finals from the injected notebook root and `path.parse(originalFilename).name`: `transcriptions/<base>_transcription.txt` and `summaries/<base>_summary.txt`.
-- [ ] `READY` maps to `TRANSCRIPT_READY` only when its derived Transcript is readable and non-empty, otherwise `RECORDED`. `COMPLETED` maps to `COMPLETED` with both verified finals, `TRANSCRIPT_READY` with Transcript only, otherwise `RECORDED`.
-- [ ] Every verified migrated artifact receives its exact path, SHA-256, byte count, and migration time. Migration never promotes from status alone.
-- [ ] Migrated timestamps start with `RECORDED` at `recordedAt` and append only the evidence-supported or terminal mapped stage at migration time. `RECONCILE.count` starts at legacy `retryCount`; every other count starts at zero; next-due, server ID, and reconciliation time start absent.
-- [ ] Legacy projections are exact: `RECORDED -> WAITING_UPLOAD`, `UPLOADING -> UPLOADING`, `SERVER_QUEUED|EXTRACTING|TRANSCRIBING|DOWNLOADING|SUMMARIZING -> PROCESSING`, `TRANSCRIPT_READY -> READY`, `COMPLETED -> COMPLETED`, retryable/non-retryable `FAILED -> FAILED/ABANDONED`, and `CANCELLED -> DELETED`.
-- [ ] `addRecording` creates a synthetic linked Meeting and zero-attempt `RECORDED` Job. `updateOptions` changes upload options and Summary template only. `resetJobForRetry` writes `RECORDED`, clears failure/next due, and zeros `RECONCILE`.
-- [ ] `setError` increments nonfatal `RECONCILE`, writes `FAILED/RECONCILE/RECORDED`, and remains retryable only below count four; fatal errors do not increment and are non-retryable. `cleanPhantomFiles` writes `CANCELLED` with the existing deletion message.
-- [ ] `updateStatus(READY)` derives and verifies the Transcript, persists evidence, and writes `TRANSCRIPT_READY`; `updateStatus(COMPLETED)` and `markCompleted` derive and verify both finals, persist both evidences, and write `COMPLETED`.
-- [ ] Evidence-gated legacy mutations reject with `ARTIFACT_EVIDENCE_REQUIRED` and leave raw v2 bytes unchanged when required finals are missing, empty, unreadable, or do not match already-persisted evidence. Files present without evidence are verified and recorded before the stage change.
-- [ ] Every real stage change closes the previous stage timestamp and appends the new stage. Status-only updates leave unrelated options, attempts, and evidence unchanged.
-- [ ] Real LowDB/filesystem tests cover every accepted/rejected root and record case, backup collision/restore/faults, every legacy mapping and artifact combination, every projection and mutation, completion evidence outcomes, raw v2 effects, and reopen idempotence.
+- [ ] Export the exact schema-v2 types and pure schema-v1/schema-v2 parser without changing LowDB behavior.
+- [ ] Accept minimal and full valid v1/v2 fixtures, unknown JSON-valued v1 entry fields, opaque v1 dates, and every optional canonical field.
+- [ ] Reject null/array roots, wrong collections, missing and unknown fields, wrong primitive types, invalid enums/counts/speaker bounds/hashes, missing operation keys, duplicate stages, and each stated timestamp relationship.
+- [ ] Return the exact JSON Pointer, finite reason, code, and derived message for each finite invalid row and every explicit precedence row.
+- [ ] Pure table tests cover one valid and one invalid boundary for each field class, all enum members, counts `-1/0/0.5`, each attempt status shape, each evidence-support rule, and every timestamp-order rule.
+- [ ] The validator has no filesystem, LowDB, config, recorder, workflow, or server side effects.
 
 ## Blocked by
 

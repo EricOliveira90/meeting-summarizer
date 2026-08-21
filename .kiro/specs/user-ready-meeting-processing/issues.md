@@ -17,5 +17,7 @@
 | 13 | #41 | Apply Artifact Retention after Completion | AFK | #35 | US-40, US-41, US-42 |
 | 14 | #42 | Reboot Both Machines and Complete through Google Bridge | AFK | #35 | US-7, US-43, US-44, US-45, US-48 |
 | 15 | #43 | Diagnose and Certify the Installed System | AFK | #36, #37, #38, #39, #40, #41, #42 | US-46, US-47, US-48, US-49, US-50 |
-| 16 | #48 | Persist Recording Attempts and Create the Recorded Job | AFK | #49 | US-1, US-2, US-3, US-4 |
-| 17 | #49 | Migrate Client Data to the Durable Job Schema | AFK | #34 | US-49, technical enabler |
+| 16 | #48 | Persist Recording Attempts and Create the Recorded Job | AFK | #51 | US-1, US-2, US-3, US-4 |
+| 17 | #49 | Define and Validate the Durable Client Store Schema | AFK | #34 | Technical enabler |
+| 18 | #50 | Migrate Legacy Client Data Safely | AFK | #49 | US-49 |
+| 19 | #51 | Wire Durable Jobs Through the Legacy Client Database API | AFK | #50 | Technical enabler |
