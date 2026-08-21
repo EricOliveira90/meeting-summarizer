@@ -46,7 +46,10 @@ export class SyncManager {
             try {
                 const serverJob = await this.api.getJobStatus(job.id);
 
-                if (serverJob.serverStatus === 'COMPLETED') {
+                if (
+                    serverJob.serverStatus === 'COMPLETED'
+                    && serverJob.currentStep === 'TRANSCRIPT_READY'
+                ) {
                     await this.db.updateStatus(job.id, ClientJobStatus.READY);
                 } else if (serverJob.serverStatus === 'FAILED') {
                     // Server crashed during processing (Whisper/Gemini error)

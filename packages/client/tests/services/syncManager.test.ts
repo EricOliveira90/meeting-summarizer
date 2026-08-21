@@ -382,6 +382,35 @@ describe('SyncManager', () => {
   });
 
   describe('updateActiveStates() - Polling Logic', () => {
+    it('marks a Job READY only at server TRANSCRIPT_READY completion', async () => {
+      const fakeJob = { id: 'ready-456', clientStatus: ClientJobStatus.PROCESSING };
+      mockDb.getAll.mockResolvedValue([fakeJob]);
+      mockApi.getJobStatus.mockResolvedValue({
+        serverStatus: 'COMPLETED',
+        currentStep: JobStep.TRANSCRIPT_READY
+      });
+
+      await syncManager['updateActiveStates']();
+
+      expect(mockDb.updateStatus).toHaveBeenCalledWith(
+        'ready-456',
+        ClientJobStatus.READY
+      );
+    });
+
+    it('does not treat a non-ready COMPLETED status body as a Transcript', async () => {
+      const fakeJob = { id: 'not-ready-456', clientStatus: ClientJobStatus.PROCESSING };
+      mockDb.getAll.mockResolvedValue([fakeJob]);
+      mockApi.getJobStatus.mockResolvedValue({
+        serverStatus: 'COMPLETED',
+        currentStep: JobStep.TRANSCRIBING
+      });
+
+      await syncManager['updateActiveStates']();
+
+      expect(mockDb.updateStatus).not.toHaveBeenCalled();
+      expect(mockDb.setError).not.toHaveBeenCalled();
+    });
     
     it('should mark job as FAILED (fatal) if the server processing fails', async () => {
       // Arrange
