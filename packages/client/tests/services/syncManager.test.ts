@@ -2,7 +2,11 @@ import inquirer from 'inquirer';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SyncManager } from '../../src/services/syncManager';
 import { ClientJobStatus, SyncError } from '../../src/domain';
-import { TranscriptionLanguage, AIPromptTemplate } from '@meeting-summarizer/shared';
+import {
+  TranscriptionLanguage,
+  AIPromptTemplate,
+  JobStep
+} from '@meeting-summarizer/shared';
 
 // 1. Mock inquirer purely, without referencing external variables (avoids hoisting ReferenceError)
 vi.mock('inquirer', () => ({
@@ -90,6 +94,78 @@ describe('SyncManager', () => {
   });
 
   describe('pushJob() - Single Job Upload Logic', () => {
+    it.each([
+      {
+        serverJob: { serverStatus: 'PENDING', currentStep: JobStep.QUEUED },
+        expectedStatus: ClientJobStatus.PROCESSING
+      },
+      {
+        serverJob: { serverStatus: 'PROCESSING', currentStep: JobStep.TRANSCRIBING },
+        expectedStatus: ClientJobStatus.PROCESSING
+      },
+      {
+        serverJob: { serverStatus: 'COMPLETED', currentStep: JobStep.TRANSCRIPT_READY },
+        expectedStatus: ClientJobStatus.READY
+      },
+      {
+        serverJob: {
+          serverStatus: 'FAILED',
+          currentStep: JobStep.TRANSCRIBING,
+          error: 'Whisper failed'
+        },
+        expectedStatus: ClientJobStatus.ABANDONED,
+        expectedError: 'Whisper failed'
+      }
+    ])('reconciles a found $serverJob.serverStatus Job without creating it', async ({
+      serverJob,
+      expectedStatus,
+      expectedError
+    }) => {
+      const fakeJob = {
+        id: 'job-123',
+        filePath: 'C:/recordings/meeting.wav',
+        originalFilename: 'meeting.wav',
+        recordedAt: '2026-08-20T09:30:00-03:00',
+        clientStatus: ClientJobStatus.FAILED,
+        retryCount: 2,
+        meetingId: 'meeting-456',
+        options: {
+          language: TranscriptionLanguage.ENGLISH,
+          template: AIPromptTemplate.MEETING,
+          minSpeakers: 2,
+          maxSpeakers: 5
+        }
+      } as any;
+      const persistedMetadata = {
+        id: fakeJob.id,
+        recordedAt: fakeJob.recordedAt,
+        meetingId: fakeJob.meetingId,
+        options: fakeJob.options
+      };
+      mockApi.getJobStatus.mockResolvedValueOnce(serverJob);
+      mockDb.updateStatus.mockImplementation(async (_id: string, status: ClientJobStatus) => {
+        fakeJob.clientStatus = status;
+      });
+      mockDb.setError.mockImplementation(async (_id: string, message: string, isFatal: boolean) => {
+        fakeJob.error = message;
+        if (isFatal) fakeJob.clientStatus = ClientJobStatus.ABANDONED;
+      });
+
+      await syncManager.pushJob(fakeJob);
+
+      expect(mockApi.uploadMeeting).not.toHaveBeenCalled();
+      expect(fakeJob).toMatchObject({
+        ...persistedMetadata,
+        clientStatus: expectedStatus,
+        retryCount: 2
+      });
+      if (expectedError) {
+        expect(mockDb.setError).toHaveBeenCalledWith('job-123', expectedError, true);
+      } else {
+        expect(mockDb.setError).not.toHaveBeenCalled();
+      }
+    });
+
     it('creates once after exact absence without changing persisted Job metadata', async () => {
       const fakeJob = {
         id: 'job-123',

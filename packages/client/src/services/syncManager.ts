@@ -101,7 +101,21 @@ export class SyncManager {
      */
     public async pushJob(job: ClientJob): Promise<void> {
         try {
-            await this.api.getJobStatus(job.id);
+            const serverJob = await this.api.getJobStatus(job.id);
+            if (serverJob.serverStatus === 'PENDING' || serverJob.serverStatus === 'PROCESSING') {
+                await this.db.updateStatus(job.id, ClientJobStatus.PROCESSING);
+            } else if (
+                serverJob.serverStatus === 'COMPLETED'
+                && serverJob.currentStep === 'TRANSCRIPT_READY'
+            ) {
+                await this.db.updateStatus(job.id, ClientJobStatus.READY);
+            } else if (serverJob.serverStatus === 'FAILED') {
+                await this.db.setError(
+                    job.id,
+                    serverJob.error || 'Server processing failed',
+                    true
+                );
+            }
             return;
         } catch (error) {
             const isAbsent = error instanceof SyncError
