@@ -37,8 +37,8 @@ node C:\Code\afk\dist\afk-codex.js `
   --dry-run
 ```
 
-Proceed only when the preview reports 16 AFK slices, slice 01 / issue #44 as
-the sole initial frontier, ten waves, and no missing dependencies.
+Proceed only when the preview reports 17 AFK slices, slice 01 / issue #44 as
+the sole initial frontier, eleven waves, and no missing dependencies.
 
 ## Run
 
@@ -94,5 +94,5 @@ The run is complete only when:
 - every selected slice passes;
 - the merged feature branch passes AFK's sanity gate;
 - architect and product guardian verdicts allow shipment;
-- AFK opens a draft PR containing `Closes #33` through `Closes #48`;
+- AFK opens a draft PR closing every issue listed in `issues.md`;
 - `handoff.json` reports the draft PR and no failed or skipped AFK slice.

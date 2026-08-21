@@ -17,4 +17,5 @@
 | 13 | #41 | Apply Artifact Retention after Completion | AFK | #35 | US-40, US-41, US-42 |
 | 14 | #42 | Reboot Both Machines and Complete through Google Bridge | AFK | #35 | US-7, US-43, US-44, US-45, US-48 |
 | 15 | #43 | Diagnose and Certify the Installed System | AFK | #36, #37, #38, #39, #40, #41, #42 | US-46, US-47, US-48, US-49, US-50 |
-| 16 | #48 | Persist Recording Attempts and Migrate Durable Jobs | AFK | #34 | US-1, US-2, US-3, US-4, US-49 |
+| 16 | #48 | Persist Recording Attempts and Create the Recorded Job | AFK | #49 | US-1, US-2, US-3, US-4 |
+| 17 | #49 | Migrate Client Data to the Durable Job Schema | AFK | #34 | US-49, technical enabler |
