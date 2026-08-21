@@ -82,10 +82,34 @@ type RecordingAttempt = {
 };
 ```
 
+The exported parser boundary is exact:
+
+```ts
+type ClientStoreData = ClientStoreV1 | ClientStoreV2;
+type ClientStoreParseResult = ClientStoreData | ClientDbInvalid;
+declare function parseClientStore(input: unknown): ClientStoreParseResult;
+```
+
 Every operation key is present. IDs, paths, filenames, failure messages, and
 models are non-empty strings. Counts and speaker bounds are non-negative
 integers, and `minSpeakers <= maxSpeakers` when both exist. SHA-256 values are
 lowercase 64-character hex strings.
+
+## JSON value contract
+
+`JsonValue` is null, boolean, string, finite number, a dense `JsonValue[]`, or a
+cycle-free plain record whose prototype is `Object.prototype` or null and whose
+own keys are enumerable string data properties. Shared acyclic references are
+valid.
+
+Reject root or nested `undefined`, symbol, function, bigint, `NaN`, infinities,
+array holes, cycles, accessors, symbol or non-enumerable keys, Date/Map/Set, and
+class instances as `NON_JSON_VALUE`. Scan depth-first in array-index and
+`Object.keys` order before schema validation. Report the value, hole, or cycle
+back-edge pointer. For an invalid object property shape that has no canonical
+JSON member representation, including symbol keys, non-enumerable keys, and
+accessors, report the containing-object pointer. For example, a symbol key on a
+nested `metadata` extension reports `#/jobs/0/metadata`.
 
 ## Accepted schema v1
 
@@ -118,6 +142,9 @@ lowercase 64-character hex strings.
   `TRANSCRIPT_READY|DOWNLOADING|SUMMARIZING|COMPLETED`. Summary evidence
   requires a `COMPLETED` timestamp. Evidence `committedAt` is at or after
   `recordedAt` and its first supporting stage start.
+- A current `SUMMARIZING` or `COMPLETED` Job requires Transcript evidence. A
+  current `COMPLETED` Job also requires Summary evidence. `TRANSCRIPT_READY`
+  and `DOWNLOADING` do not require committed local Transcript evidence.
 - `nextAttemptAt` is at or after the current-stage start.
   `lastReconciledAt` is at or after `recordedAt`.
 - A Recording attempt validates only its own times:
@@ -162,15 +189,38 @@ Overlapping defects use this precedence:
 Thus a numeric enum is `EXPECTED_STRING`, a missing operation key is
 `MISSING_OPERATION_KEY`, and a non-string hash is `EXPECTED_STRING`.
 
+Invariant diagnostics are exact:
+
+- `minSpeakers > maxSpeakers`: the `maxSpeakers` pointer /
+  `INVALID_TIMESTAMP_ORDER`.
+- Empty stage history: `stageTimestamps/0` / `MISSING_FIELD`.
+- Wrong first or final stage: the offending `stage` / `INVALID_ENUM`.
+- First start different from `recordedAt`, a prior start after completion, or a
+  prior completion after the next start: the offending timestamp /
+  `INVALID_TIMESTAMP_ORDER`.
+- Duplicate stage: the duplicate `stage` / `DUPLICATE_STAGE`.
+- Missing prior completion: that `completedAt` / `MISSING_FIELD`; completion on
+  the final stage: that `completedAt` / `UNKNOWN_FIELD`.
+- Missing required Transcript or Summary evidence: that artifact member /
+  `MISSING_FIELD`; unsupported or early evidence: its `committedAt` /
+  `INVALID_TIMESTAMP_ORDER`.
+- Early `nextAttemptAt`, `lastReconciledAt`, or attempt completion: the
+  offending timestamp / `INVALID_TIMESTAMP_ORDER`.
+- Missing attempt-status fields: the missing member / `MISSING_FIELD`;
+  status-forbidden `completedAt`, `error`, `actualPath`, or `jobId`: the
+  offending member / `UNKNOWN_FIELD`.
+
 ## Acceptance criteria
 
-- [ ] Export the exact schema-v2 types and pure schema-v1/schema-v2 parser without changing LowDB behavior.
+- [ ] Export the exact schema-v2 types, `ClientStoreV1`, `ClientStoreV2`, `ClientStoreData = ClientStoreV1 | ClientStoreV2`, `ClientStoreParseResult = ClientStoreData | ClientDbInvalid`, and `parseClientStore(input: unknown): ClientStoreParseResult` without changing LowDB behavior.
 - [ ] Accept minimal and full valid v1/v2 fixtures, unknown JSON-valued v1 entry fields, opaque v1 dates, and every optional canonical field.
-- [ ] Pass one full v1 fixture with absent Meetings and known/unknown Job and Meeting fields, plus one full v2 fixture, through both JSON-text and deep-frozen parsed-value inputs. All four calls return the exact same canonical data; v1 adds exactly `meetings: []` and preserves every known and unknown entry field.
+- [ ] Pass full v1 fixtures with Meetings present and absent, plus one full v2 fixture, through both JSON-text and deep-frozen parsed-value inputs. Every pair returns the exact same canonical data; v1 preserves every known and unknown Job/Meeting entry field and only the absent case gains `meetings: []`.
 - [ ] Deep-freeze each parsed input and compare its complete structure before and after parsing; the parser neither throws from attempted mutation nor changes any caller-owned object or nested value.
+- [ ] Positive deep-frozen parsed-input rows accept and preserve a nested null-prototype record and one plain record shared by two accepted extension fields without treating the repeated reference as a cycle.
 - [ ] Reject null/array roots, wrong collections, missing and unknown fields, wrong primitive types, invalid enums/counts/speaker bounds/hashes, missing operation keys, duplicate stages, and each stated timestamp relationship.
-- [ ] Return the exact JSON Pointer, finite reason, code, and derived message for each finite invalid row and every explicit precedence row.
+- [ ] Reject every named non-JSON JavaScript shape and return the exact JSON Pointer, finite reason, code, and derived message for each finite invalid row and every explicit precedence row, including the containing-object pointer for a nested symbol-key fixture.
 - [ ] Pure table tests cover one valid and one invalid boundary for each field class, all enum members, counts `-1/0/0.5`, each attempt status shape, each evidence-support rule, and every timestamp-order rule.
+- [ ] An isolated no-emit TypeScript consumer imports only the domain barrel and uses positive assignments plus `@ts-expect-error` rows to prove every export, alias, union member, required field, forbidden field, and parser-result narrowing.
 - [ ] The validator has no filesystem, LowDB, config, recorder, workflow, or server side effects.
 
 ## Blocked by
