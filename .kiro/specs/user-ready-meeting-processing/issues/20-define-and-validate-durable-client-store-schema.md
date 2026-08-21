@@ -166,6 +166,8 @@ Thus a numeric enum is `EXPECTED_STRING`, a missing operation key is
 
 - [ ] Export the exact schema-v2 types and pure schema-v1/schema-v2 parser without changing LowDB behavior.
 - [ ] Accept minimal and full valid v1/v2 fixtures, unknown JSON-valued v1 entry fields, opaque v1 dates, and every optional canonical field.
+- [ ] Pass one full v1 fixture with absent Meetings and known/unknown Job and Meeting fields, plus one full v2 fixture, through both JSON-text and deep-frozen parsed-value inputs. All four calls return the exact same canonical data; v1 adds exactly `meetings: []` and preserves every known and unknown entry field.
+- [ ] Deep-freeze each parsed input and compare its complete structure before and after parsing; the parser neither throws from attempted mutation nor changes any caller-owned object or nested value.
 - [ ] Reject null/array roots, wrong collections, missing and unknown fields, wrong primitive types, invalid enums/counts/speaker bounds/hashes, missing operation keys, duplicate stages, and each stated timestamp relationship.
 - [ ] Return the exact JSON Pointer, finite reason, code, and derived message for each finite invalid row and every explicit precedence row.
 - [ ] Pure table tests cover one valid and one invalid boundary for each field class, all enum members, counts `-1/0/0.5`, each attempt status shape, each evidence-support rule, and every timestamp-order rule.
