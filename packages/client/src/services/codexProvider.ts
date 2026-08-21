@@ -105,6 +105,10 @@ function notChecked() {
   return { status: 'not_checked' as const };
 }
 
+function normalizeFinalMessage(output: string): string {
+  return output.replace(/\r\n/g, '\n').trim();
+}
+
 export async function checkCodexReadiness(
   model: string,
   options: CodexProviderOptions = {},
@@ -219,9 +223,18 @@ export class CodexProvider implements SummaryProvider {
       };
     }
 
-    return {
-      success: true,
-      summary: await fs.readFile(outputPath, 'utf8'),
-    };
+    const summary = normalizeFinalMessage(await fs.readFile(outputPath, 'utf8'));
+    if (!summary) {
+      return {
+        success: false,
+        error: {
+          category: 'MALFORMED_OUTPUT',
+          retryable: true,
+          message: 'Codex returned no Summary.',
+        },
+      };
+    }
+
+    return { success: true, summary };
   }
 }

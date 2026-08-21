@@ -35,18 +35,22 @@ describe('CodexProvider', () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it('creates a normalized Summary through the exact non-interactive protocol', async () => {
-    const provider = new CodexProvider({
+  function createProvider(mode: string) {
+    return new CodexProvider({
       model: MODEL_CANARY,
       executablePath: process.execPath,
       executableArgs: [fakeCodexPath],
       environment: {
         ...process.env,
-        FAKE_CODEX_MODE: 'summary-success',
+        FAKE_CODEX_MODE: mode,
         FAKE_CODEX_PROTOCOL_PATH: protocolPath,
       },
       tempDirectory: tempDir,
     });
+  }
+
+  it('creates a normalized Summary through the exact non-interactive protocol', async () => {
+    const provider = createProvider('summary-success');
 
     const result = await provider.summarize({
       transcript: TRANSCRIPT_CANARY,
@@ -87,5 +91,33 @@ describe('CodexProvider', () => {
       SUMMARY_PROMPTS[AIPromptTemplate.TRAINING],
     );
     expect(result.summary).not.toContain('STDOUT IS NOT THE SUMMARY');
+  });
+
+  it('normalizes arbitrary non-empty final-message text', async () => {
+    const result = await createProvider('normalized-output').summarize({
+      transcript: TRANSCRIPT_CANARY,
+      template: AIPromptTemplate.SUMMARY,
+    });
+
+    expect(result).toEqual({
+      success: true,
+      summary: 'Arbitrary final text\nwith a second line',
+    });
+  });
+
+  it('rejects an empty normalized final message', async () => {
+    const result = await createProvider('empty-output').summarize({
+      transcript: TRANSCRIPT_CANARY,
+      template: AIPromptTemplate.MEETING,
+    });
+
+    expect(result).toEqual({
+      success: false,
+      error: {
+        category: 'MALFORMED_OUTPUT',
+        retryable: true,
+        message: 'Codex returned no Summary.',
+      },
+    });
   });
 });

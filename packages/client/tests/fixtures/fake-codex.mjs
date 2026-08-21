@@ -42,6 +42,13 @@ if (args[0] === '--version') {
         args[outputIndex + 1],
         '## Training Summary\n\n- Exact final message',
       );
+    } else if (mode === 'normalized-output') {
+      fs.writeFileSync(
+        args[outputIndex + 1],
+        ' \r\nArbitrary final text\r\nwith a second line\r\n ',
+      );
+    } else if (mode === 'empty-output') {
+      fs.writeFileSync(args[outputIndex + 1], ' \r\n\t ');
     } else {
       fs.writeFileSync(args[outputIndex + 1], ' \r\nREADY\r\n ');
     }
