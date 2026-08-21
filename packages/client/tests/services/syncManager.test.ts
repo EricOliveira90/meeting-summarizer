@@ -31,7 +31,9 @@ describe('SyncManager', () => {
     // 3. Setup fresh mocks before each test
     mockApi = {
       uploadMeeting: vi.fn(),
-      getJobStatus: vi.fn(),
+      getJobStatus: vi.fn().mockRejectedValue(
+        new SyncError('Job was not found.', false, 404, 'JOB_NOT_FOUND')
+      ),
     };
 
     mockDb = {
@@ -88,6 +90,59 @@ describe('SyncManager', () => {
   });
 
   describe('pushJob() - Single Job Upload Logic', () => {
+    it('creates once after exact absence without changing persisted Job metadata', async () => {
+      const fakeJob = {
+        id: 'job-123',
+        filePath: 'C:/recordings/meeting.wav',
+        originalFilename: 'meeting.wav',
+        recordedAt: '2026-08-20T09:30:00-03:00',
+        clientStatus: ClientJobStatus.WAITING_UPLOAD,
+        retryCount: 2,
+        meetingId: 'meeting-456',
+        options: {
+          language: TranscriptionLanguage.ENGLISH,
+          template: AIPromptTemplate.MEETING,
+          minSpeakers: 2,
+          maxSpeakers: 5
+        }
+      } as any;
+      const persistedMetadata = {
+        id: fakeJob.id,
+        recordedAt: fakeJob.recordedAt,
+        meetingId: fakeJob.meetingId,
+        options: fakeJob.options
+      };
+      mockApi.uploadMeeting.mockResolvedValue({
+        success: true,
+        jobId: 'job-123',
+        message: 'File queued.'
+      });
+      mockDb.updateStatus.mockImplementation(async (_id: string, status: ClientJobStatus) => {
+        fakeJob.clientStatus = status;
+      });
+      mockDb.resetJobForRetry.mockImplementation(async () => {
+        fakeJob.clientStatus = ClientJobStatus.WAITING_UPLOAD;
+        fakeJob.retryCount = 0;
+      });
+
+      await syncManager.pushJob(fakeJob);
+
+      expect(mockApi.getJobStatus).toHaveBeenCalledOnce();
+      expect(mockApi.getJobStatus).toHaveBeenCalledWith('job-123');
+      expect(mockApi.uploadMeeting).toHaveBeenCalledOnce();
+      expect(mockApi.uploadMeeting).toHaveBeenCalledWith(
+        'C:/recordings/meeting.wav',
+        'job-123',
+        '2026-08-20T09:30:00-03:00',
+        fakeJob.options
+      );
+      expect(fakeJob).toMatchObject({
+        ...persistedMetadata,
+        clientStatus: ClientJobStatus.PROCESSING,
+        retryCount: 0
+      });
+      expect(mockDb.updateOptions).not.toHaveBeenCalled();
+    });
     
     it('should correctly handle a TRANSIENT network error (e.g. Tunnel Down)', async () => {
       // Arrange

@@ -100,6 +100,16 @@ export class SyncManager {
      * Uploads a single job. Prompts for configuration if missing.
      */
     public async pushJob(job: ClientJob): Promise<void> {
+        try {
+            await this.api.getJobStatus(job.id);
+            return;
+        } catch (error) {
+            const isAbsent = error instanceof SyncError
+                && error.statusCode === 404
+                && error.code === 'JOB_NOT_FOUND';
+            if (!isAbsent) return;
+        }
+
         let options = job.options
 
         // Prompt for configuration if it hasn't been set yet
@@ -119,8 +129,8 @@ export class SyncManager {
             );
 
             // Success: Server has it, reset retries
-            await this.db.updateStatus(job.id, ClientJobStatus.PROCESSING);
             await this.db.resetJobForRetry(job.id); // Resets retryCount to 0
+            await this.db.updateStatus(job.id, ClientJobStatus.PROCESSING);
 
         } catch (error) {
             const isFatal = error instanceof SyncError && !error.isTransient;
