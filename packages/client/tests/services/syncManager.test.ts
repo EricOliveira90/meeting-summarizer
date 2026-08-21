@@ -607,5 +607,71 @@ describe('SyncManager', () => {
       expect(mockNote.saveNote).not.toHaveBeenCalled();
       stderr.mockRestore();
     });
+
+    it('contains temporary cleanup failures and continues the Manual Sync cycle', async () => {
+      const failedReadyJob = {
+        id: 'job-123',
+        clientStatus: ClientJobStatus.READY,
+        originalFilename: 'failed.wav'
+      };
+      const laterReadyJob = {
+        id: 'job-456',
+        clientStatus: ClientJobStatus.READY,
+        originalFilename: 'later.wav'
+      };
+      const pendingJob = {
+        id: 'job-789',
+        filePath: 'C:/recordings/pending.wav',
+        originalFilename: 'pending.wav',
+        recordedAt: '2026-08-20T09:30:00-03:00',
+        clientStatus: ClientJobStatus.WAITING_UPLOAD,
+        retryCount: 0,
+        options: {
+          language: TranscriptionLanguage.ENGLISH,
+          template: AIPromptTemplate.MEETING
+        }
+      };
+      const laterTranscript = 'Speaker 1: Later Transcript';
+      mockDb.getAll.mockResolvedValue([
+        failedReadyJob,
+        laterReadyJob,
+        pendingJob
+      ]);
+      mockDb.getReadyToFetch.mockResolvedValue([
+        failedReadyJob,
+        laterReadyJob
+      ]);
+      mockApi.getTranscript
+        .mockRejectedValueOnce(new Error('download interrupted'))
+        .mockResolvedValueOnce(laterTranscript);
+      mockFileSystem.deleteFile.mockRejectedValueOnce(
+        new Error('cleanup denied')
+      );
+      mockFileSystem.readFile.mockResolvedValue(laterTranscript);
+      const stderr = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+      try {
+        await expect(syncManager.runFullSyncCycle()).resolves.toBeUndefined();
+
+        expect(stderr).toHaveBeenCalledWith(
+          'Transcript download failed for job-123; retry on next Manual Sync: download interrupted'
+        );
+        expect(mockApi.getTranscript).toHaveBeenCalledWith('job-456');
+        expect(mockFileSystem.renameFile).toHaveBeenCalledWith(
+          'transcriptions/later_transcription.txt.job-456.tmp',
+          'transcriptions/later_transcription.txt'
+        );
+        expect(mockApi.uploadMeeting).toHaveBeenCalledWith(
+          pendingJob.filePath,
+          pendingJob.id,
+          pendingJob.recordedAt,
+          pendingJob.options
+        );
+        expect(failedReadyJob.clientStatus).toBe(ClientJobStatus.READY);
+        expect(laterReadyJob.clientStatus).toBe(ClientJobStatus.READY);
+      } finally {
+        stderr.mockRestore();
+      }
+    });
   });
 });

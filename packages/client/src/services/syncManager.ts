@@ -89,8 +89,10 @@ export class SyncManager {
                 }
                 await this.fs.renameFile(temporaryPath, transcriptPath);
             } catch (error) {
-                await this.fs.deleteFile(temporaryPath);
                 const reason = error instanceof Error ? error.message : String(error);
+                try {
+                    await this.fs.deleteFile(temporaryPath);
+                } catch {}
                 console.error(
                     `Transcript download failed for ${job.id}; retry on next Manual Sync: ${reason}`
                 );
