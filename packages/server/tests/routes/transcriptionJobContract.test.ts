@@ -676,6 +676,7 @@ describe('Transcript download contract', () => {
       job: {
         serverStatus: 'COMPLETED',
         currentStep: JobStep.TRANSCRIPT_READY,
+        transcriptPath: '/artifact-root/transcript/ready.txt',
       },
       transcript: 'Speaker 1: Ready transcript',
       expectedStatus: 200,
@@ -686,6 +687,7 @@ describe('Transcript download contract', () => {
       job: {
         serverStatus: 'COMPLETED',
         currentStep: JobStep.TRANSCRIPT_READY,
+        transcriptPath: '/artifact-root/transcript/null-artifact.txt',
       },
       transcript: null,
       expectedStatus: 409,
@@ -700,6 +702,7 @@ describe('Transcript download contract', () => {
       job: {
         serverStatus: 'COMPLETED',
         currentStep: JobStep.TRANSCRIPT_READY,
+        transcriptPath: '/artifact-root/transcript/rejected-read.txt',
       },
       transcriptError: new Error('artifact unavailable'),
       expectedStatus: 409,
@@ -742,6 +745,9 @@ describe('Transcript download contract', () => {
     if (expectedStatus === 200) {
       expect(response.headers['content-type']).toContain('text/plain');
       expect(response.body).toBe(transcript);
+      expect(harness.artifacts.readTranscript).toHaveBeenCalledWith(
+        '/artifact-root/transcript/ready.txt',
+      );
     } else {
       expect(response.json()).toEqual(expectedBody);
     }

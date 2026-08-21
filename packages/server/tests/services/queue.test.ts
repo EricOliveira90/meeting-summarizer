@@ -1,26 +1,11 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { JobStep } from '@meeting-summarizer/shared';
-import { JobRecord } from '../../src/domain/models';
-import { processMeetingJob, createInitialSteps } from '../../src/services/queue';
-
-// Mock the external services
-const mockConvertToWav = vi.fn();
-const mockTranscribe = vi.fn();
-const mockSummarize = vi.fn();
-
-const mockDb = {
-  data: { jobs: [] as JobRecord[] },
-  read: vi.fn(),
-  write: vi.fn(),
-};
-
-vi.mock('../../src/services', () => ({
-  audioExtractionService: { convertToWav: (...args: any[]) => mockConvertToWav(...args) },
-  transcriptionService: { transcribe: (...args: any[]) => mockTranscribe(...args) },
-  summaryService: { summarize: (...args: any[]) => mockSummarize(...args) },
-  getDb: () => Promise.resolve(mockDb),
-  FileManagerService: class {},
-}));
+import type { JobRecord } from '../../src/domain/models';
+import {
+  createInitialSteps,
+  processMeetingJob,
+  type ProcessingDependencies,
+} from '../../src/services/queue';
 
 function makeJob(overrides: Partial<JobRecord> = {}): JobRecord {
   return {
@@ -35,10 +20,50 @@ function makeJob(overrides: Partial<JobRecord> = {}): JobRecord {
   };
 }
 
-describe('Queue Processor — Step Tracking', () => {
+function createHarness(overrides: {
+  job?: JobRecord;
+  audioPath?: string;
+  transcriptPath?: string;
+  transcriptExists?: boolean;
+} = {}) {
+  const job = overrides.job ?? makeJob();
+  const audioPath = overrides.audioPath ?? '/audio/test.wav';
+  const transcriptPath = overrides.transcriptPath ?? '/transcripts/test.txt';
+  const extract = vi.fn().mockResolvedValue({ audioPath });
+  const transcribe = vi.fn().mockResolvedValue({
+    text: 'hello',
+    outputFilePath: transcriptPath,
+  });
+  const replace = vi.fn().mockResolvedValue(undefined);
+  const fileExists = vi.fn().mockResolvedValue(overrides.transcriptExists ?? true);
+  const dependencies: ProcessingDependencies = {
+    jobStore: {
+      getById: vi.fn(async (id: string) => id === job.id ? job : undefined),
+      replace,
+    },
+    artifacts: {
+      getAudioPath: vi.fn().mockReturnValue(audioPath),
+      getTranscriptPath: vi.fn().mockReturnValue(transcriptPath),
+      fileExists,
+    },
+    audioExtractor: { convertToWav: extract },
+    transcriber: { transcribe },
+  };
+
+  return {
+    audioPath,
+    dependencies,
+    extract,
+    fileExists,
+    job,
+    transcriptPath,
+    transcribe,
+  };
+}
+
+describe('Queue Processor - Step Tracking', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockDb.data.jobs = [];
   });
 
   it('initializes steps with QUEUED timestamps on job creation', () => {
@@ -48,52 +73,100 @@ describe('Queue Processor — Step Tracking', () => {
     expect(steps[JobStep.QUEUED]!.completedAt).toBeDefined();
   });
 
-  it('completes the server operation when the Transcript is ready without running a Summary step', async () => {
-    const job = makeJob();
-    mockDb.data.jobs = [job];
+  it('completes the server operation when the Transcript is ready without a Summary step', async () => {
+    const harness = createHarness();
 
-    mockConvertToWav.mockResolvedValue({ audioPath: '/audio/test.wav' });
-    mockTranscribe.mockResolvedValue({ text: 'hello', outputFilePath: '/trans/test.txt' });
+    await processMeetingJob(
+      { jobId: harness.job.id, filePath: harness.job.filePath },
+      harness.dependencies,
+    );
 
-    await processMeetingJob({ jobId: 'test-job', filePath: '/uploads/test.mkv' });
+    expect(harness.job.serverStatus).toBe('COMPLETED');
+    expect(harness.job.currentStep).toBe(JobStep.TRANSCRIPT_READY);
+    expect(Object.keys(harness.job.steps!)).toEqual([
+      JobStep.QUEUED,
+      JobStep.EXTRACTING_AUDIO,
+      JobStep.TRANSCRIBING,
+      JobStep.TRANSCRIPT_READY,
+    ]);
 
-    const updatedJob = mockDb.data.jobs[0];
-    expect(updatedJob.serverStatus).toBe('COMPLETED');
-    expect(updatedJob.currentStep).toBe(JobStep.TRANSCRIPT_READY);
-    expect(updatedJob.steps![JobStep.EXTRACTING_AUDIO]?.startedAt).toBeDefined();
-    expect(updatedJob.steps![JobStep.EXTRACTING_AUDIO]?.completedAt).toBeDefined();
-    expect(updatedJob.steps![JobStep.TRANSCRIBING]?.startedAt).toBeDefined();
-    expect(updatedJob.steps![JobStep.TRANSCRIBING]?.completedAt).toBeDefined();
-    expect(updatedJob.steps![JobStep.TRANSCRIPT_READY]?.startedAt).toBeDefined();
-    expect(updatedJob.steps![JobStep.TRANSCRIPT_READY]?.completedAt).toBeDefined();
-    expect(mockSummarize).not.toHaveBeenCalled();
+    const orderedSteps = [
+      JobStep.QUEUED,
+      JobStep.EXTRACTING_AUDIO,
+      JobStep.TRANSCRIBING,
+      JobStep.TRANSCRIPT_READY,
+    ];
+    for (let index = 1; index < orderedSteps.length; index += 1) {
+      const previous = harness.job.steps![orderedSteps[index - 1]]!;
+      const current = harness.job.steps![orderedSteps[index]]!;
+      expect(Date.parse(previous.completedAt!)).toBeLessThanOrEqual(
+        Date.parse(current.startedAt),
+      );
+    }
   });
 
-  it('sets failedStep when processing fails at a specific step', async () => {
-    const job = makeJob();
-    mockDb.data.jobs = [job];
+  it('attributes an extraction failure to the active step', async () => {
+    const harness = createHarness();
+    harness.extract.mockRejectedValueOnce(new Error('FFmpeg crashed'));
 
-    mockConvertToWav.mockResolvedValue({ audioPath: '/audio/test.wav' });
-    mockTranscribe.mockRejectedValue(new Error('Whisper crashed'));
+    await expect(processMeetingJob(
+      { jobId: harness.job.id, filePath: harness.job.filePath },
+      harness.dependencies,
+    )).rejects.toThrow('FFmpeg crashed');
 
-    await expect(
-      processMeetingJob({ jobId: 'test-job', filePath: '/uploads/test.mkv' })
-    ).rejects.toThrow('Whisper crashed');
+    expect(harness.job.serverStatus).toBe('FAILED');
+    expect(harness.job.failedStep).toBe(JobStep.EXTRACTING_AUDIO);
+    expect(harness.transcribe).not.toHaveBeenCalled();
+  });
 
-    const updatedJob = mockDb.data.jobs[0];
-    expect(updatedJob.serverStatus).toBe('FAILED');
-    expect(updatedJob.failedStep).toBe(JobStep.TRANSCRIBING);
-    expect(updatedJob.error).toBe('Whisper crashed');
+  it('attributes a transcription failure to the active step', async () => {
+    const harness = createHarness();
+    harness.transcribe.mockRejectedValueOnce(new Error('Whisper crashed'));
+
+    await expect(processMeetingJob(
+      { jobId: harness.job.id, filePath: harness.job.filePath },
+      harness.dependencies,
+    )).rejects.toThrow('Whisper crashed');
+
+    expect(harness.job.serverStatus).toBe('FAILED');
+    expect(harness.job.failedStep).toBe(JobStep.TRANSCRIBING);
+    expect(harness.job.error).toBe('Whisper crashed');
   });
 
   it('resets recoveryAttempts to 0 on successful completion', async () => {
-    const job = makeJob({ recoveryAttempts: 2 });
-    mockDb.data.jobs = [job];
+    const harness = createHarness({ job: makeJob({ recoveryAttempts: 2 }) });
 
-    mockConvertToWav.mockResolvedValue({ audioPath: '/audio/test.wav' });
-    mockTranscribe.mockResolvedValue({ text: 'hello', outputFilePath: '/trans/test.txt' });
-    await processMeetingJob({ jobId: 'test-job', filePath: '/uploads/test.mkv' });
+    await processMeetingJob(
+      { jobId: harness.job.id, filePath: harness.job.filePath },
+      harness.dependencies,
+    );
 
-    expect(mockDb.data.jobs[0].recoveryAttempts).toBe(0);
+    expect(harness.job.recoveryAttempts).toBe(0);
+  });
+
+  it('passes injected artifact paths unchanged through processing and readiness verification', async () => {
+    const uploadPath = 'Z:\\sentinel root\\accepted Recording.bin';
+    const audioPath = 'Y:\\unrelated audio\\authoritative.wav';
+    const transcriptPath = 'X:\\other Transcript root\\authoritative.txt';
+    const harness = createHarness({
+      job: makeJob({ filePath: uploadPath }),
+      audioPath,
+      transcriptPath,
+    });
+
+    await processMeetingJob(
+      { jobId: harness.job.id, filePath: uploadPath },
+      harness.dependencies,
+    );
+
+    expect(harness.extract).toHaveBeenCalledWith(uploadPath, audioPath);
+    expect(harness.transcribe).toHaveBeenCalledWith(
+      audioPath,
+      transcriptPath,
+      expect.objectContaining({ language: 'auto' }),
+    );
+    expect(harness.fileExists).toHaveBeenCalledWith(transcriptPath);
+    expect(harness.job.audioPath).toBe(audioPath);
+    expect(harness.job.transcriptPath).toBe(transcriptPath);
   });
 });

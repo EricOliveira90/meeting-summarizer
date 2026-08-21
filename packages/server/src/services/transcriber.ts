@@ -1,6 +1,6 @@
 import { spawn } from 'child_process';
-import path from 'path';
 import fs from 'fs';
+import path from 'path';
 
 export interface TranscriptionResult {
   text: string;
@@ -15,30 +15,26 @@ export interface TranscribeOptions {
   maxSpeakers?: number;
 }
 
-const TRANSCRIPTIONS_DIR = path.join(process.cwd(), 'transcriptions');
 const WHISPER_MODEL = 'base';
 const BATCH_SIZE = '16';
-
-if (!fs.existsSync(TRANSCRIPTIONS_DIR)) {
-  fs.mkdirSync(TRANSCRIPTIONS_DIR, { recursive: true });
-}
 
 export class TranscriptionService {
   private readonly venvPythonPath = path.join(process.cwd(), 'venv-whisperx', 'Scripts', 'python.exe');
   private readonly scriptPath = path.join(process.cwd(), 'scripts', 'whisper-x.py');
   private readonly hfToken = process.env.HUGGING_FACE_TOKEN; 
 
-  public async transcribe(audioPath: string, options: TranscribeOptions): Promise<TranscriptionResult> {
+  public async transcribe(
+    audioPath: string,
+    outputTxtPath: string,
+    options: TranscribeOptions,
+  ): Promise<TranscriptionResult> {
     return new Promise((resolve, reject) => {
       
       if (!fs.existsSync(this.venvPythonPath)) {
         return reject(new Error(`Virtual Environment Python not found`));
       }
 
-      const parsedPath = path.parse(audioPath);
-      const outputTxtPath = path.join(TRANSCRIPTIONS_DIR, `${parsedPath.name}.txt`);
-
-      console.log(`🎙️  Spawning WhisperX: ${parsedPath.base}`);
+      console.log(`🎙️  Spawning WhisperX: ${path.basename(audioPath)}`);
       
       // Build Arguments (use model from options if provided, otherwise default)
       const model = options.model || WHISPER_MODEL;

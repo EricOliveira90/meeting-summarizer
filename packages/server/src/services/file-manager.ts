@@ -70,8 +70,8 @@ export class FileManagerService implements ArtifactStore {
 
   // --- File Reading ---
 
-  async readTranscript(jobId: string): Promise<string | null> {
-    return this.readFileOrNull(this.getTranscriptPath(jobId));
+  async readTranscript(transcriptPath: string): Promise<string | null> {
+    return this.readFileOrNull(transcriptPath);
   }
 
   async readSummary(jobId: string): Promise<string | null> {

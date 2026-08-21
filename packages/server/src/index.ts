@@ -3,7 +3,9 @@ import Fastify, { FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
 import { FileManagerService } from './services/file-manager';
-import { meetingQueue } from './services/queue';
+import { createMeetingQueue } from './services/queue';
+import { audioExtractionService } from './services/audio-extractor';
+import { transcriptionService } from './services/transcriber';
 import { jobStore } from './services/db';
 import { recoverStalledJobs, setupGracefulShutdown } from './services/recovery';
 import { healthRoutes } from './routes/health';
@@ -30,7 +32,12 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
   // --- Services ---
   const artifacts = options.dependencies?.artifacts ?? new FileManagerService(process.cwd());
   const resolvedJobStore = options.dependencies?.jobStore ?? jobStore;
-  const jobQueue = options.dependencies?.jobQueue ?? meetingQueue;
+  const jobQueue = options.dependencies?.jobQueue ?? createMeetingQueue({
+    jobStore: resolvedJobStore,
+    artifacts,
+    audioExtractor: audioExtractionService,
+    transcriber: transcriptionService,
+  });
   server.decorate('fileManager', artifacts);
   server.decorate('artifacts', artifacts);
   server.decorate('jobStore', resolvedJobStore);
@@ -87,11 +94,11 @@ export async function startServer(): Promise<void> {
   // Bootstrap directories, recover stalled jobs, then start listening
   await app.fileManager.ensureDirectories();
   await recoverStalledJobs(
-    (input) => meetingQueue.push(input),
+    (input) => app.jobQueue.push(input),
     app.fileManager
   );
 
-  setupGracefulShutdown(app, meetingQueue);
+  setupGracefulShutdown(app, app.jobQueue as any);
   await app.listen({ port: PORT, host: HOST });
   console.log(`\nServer listening at http://${HOST}:${PORT}`);
 }

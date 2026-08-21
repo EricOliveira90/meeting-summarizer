@@ -98,7 +98,11 @@ export async function jobRoutes(server: FastifyInstance) {
       });
     }
 
-    if (job.serverStatus !== 'COMPLETED' || job.currentStep !== JobStep.TRANSCRIPT_READY) {
+    if (
+      job.serverStatus !== 'COMPLETED' ||
+      job.currentStep !== JobStep.TRANSCRIPT_READY ||
+      !job.transcriptPath
+    ) {
       return reply.status(409).send({
         code: 'TRANSCRIPT_NOT_READY',
         error: 'Transcript is not ready.',
@@ -106,7 +110,7 @@ export async function jobRoutes(server: FastifyInstance) {
     }
 
     try {
-      const transcript = await artifacts.readTranscript(job.id);
+      const transcript = await artifacts.readTranscript(job.transcriptPath);
       if (transcript !== null) {
         return reply.type('text/plain').send(transcript);
       }

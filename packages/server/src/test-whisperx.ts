@@ -56,7 +56,12 @@ async function main() {
   const startTime = Date.now();
 
   try {
-    const result = await transcriptionService.transcribe(audioPath, {
+    const transcriptPath = path.resolve(
+      process.cwd(),
+      'transcriptions',
+      `${path.parse(audioPath).name}.txt`,
+    );
+    const result = await transcriptionService.transcribe(audioPath, transcriptPath, {
       model: MODEL,
       language: LANGUAGE,
       batchSize: BATCH_SIZE,

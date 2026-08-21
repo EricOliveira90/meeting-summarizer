@@ -1,5 +1,4 @@
 import ffmpeg from 'fluent-ffmpeg';
-import path from 'path';
 import fs from 'fs';
 
 // Interface for the extraction result
@@ -13,28 +12,17 @@ export class AudioExtractionService {
    * Extracts audio from a video file and converts it to a Whisper-friendly format.
    * Specs: 16kHz, Mono, PCM 16-bit (wav).
    * * @param inputPath - Full path to the source video file (e.g., .mkv)
-   * @param outputDir - Directory where the processed audio should be saved
+   * @param outputPath - Exact path where the processed audio should be saved
    * @returns Promise resolving to the path of the generated .wav file
    */
-  public async convertToWav(inputPath: string, outputDir: string): Promise<AudioExtractionResult> {
+  public async convertToWav(inputPath: string, outputPath: string): Promise<AudioExtractionResult> {
     return new Promise((resolve, reject) => {
       // 1. Validation
       if (!fs.existsSync(inputPath)) {
         return reject(new Error(`Input file not found: ${inputPath}`));
       }
 
-      if (!fs.existsSync(outputDir)) {
-        // Automatically create output directory if it doesn't exist
-        fs.mkdirSync(outputDir, { recursive: true });
-      }
-
-      // 2. Determine Output Path
-      const filename = path.parse(inputPath).name;
-      const outputPath = path.join(outputDir, `${filename}.wav`);
-
-      console.log(`🎵 Starting audio extraction: ${filename}`);
-
-      // 3. Configure FFmpeg
+      // 2. Configure FFmpeg
       ffmpeg(inputPath)
         .noVideo()                // Strip video stream
         .audioCodec('pcm_s16le')  // 16-bit PCM (Standard for WAV)
@@ -42,16 +30,16 @@ export class AudioExtractionService {
         .audioFrequency(16000)    // 16kHz (Whisper's native sample rate)
         .output(outputPath)
         
-        // 4. Event Handlers
+        // 3. Event Handlers
         .on('start', (commandLine) => {
-          console.log(`   Spawned FFMpeg with command: ${commandLine}`);
+          console.log('FFmpeg audio extraction started.');
         })
         .on('error', (err) => {
           console.error(`❌ FFmpeg Error:`, err.message);
           reject(err);
         })
         .on('end', () => {
-          console.log(`✅ Audio extracted successfully: ${outputPath}`);
+          console.log('Audio extraction completed.');
           
           // Optionally get metadata to confirm duration
           ffmpeg.ffprobe(outputPath, (err, metadata) => {

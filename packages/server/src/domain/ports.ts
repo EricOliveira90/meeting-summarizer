@@ -29,7 +29,7 @@ export interface ArtifactStore {
   commitRecording(stagedPath: string, finalPath: string): Promise<void>;
   deleteRecording(path: string): Promise<void>;
   fileExists(path: string): Promise<boolean>;
-  readTranscript(jobId: string): Promise<string | null>;
+  readTranscript(path: string): Promise<string | null>;
   readSummary(jobId: string): Promise<string | null>;
   deleteJobFiles(jobId: string, originalFilename: string): Promise<void>;
 }

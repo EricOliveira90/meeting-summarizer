@@ -62,12 +62,12 @@ describe('FileManagerService', () => {
     const transcriptPath = fileManager.getTranscriptPath('job-456');
     fs.writeFileSync(transcriptPath, 'Speaker 1: Hello world');
 
-    const content = await fileManager.readTranscript('job-456');
+    const content = await fileManager.readTranscript(transcriptPath);
     expect(content).toBe('Speaker 1: Hello world');
   });
 
   it('readTranscript returns null when transcript does not exist', async () => {
-    const content = await fileManager.readTranscript('nonexistent');
+    const content = await fileManager.readTranscript(path.join(baseDir, 'elsewhere', 'missing.txt'));
     expect(content).toBeNull();
   });
 

@@ -9,12 +9,12 @@ async function runExtraction() {
     const inputPath = path.join(__dirname, inputFileName);
     
     // We will save the wav in the same folder, or you can create a subfolder like 'output'
-    const outputDir = __dirname; 
+    const outputPath = path.join(__dirname, `${path.parse(inputFileName).name}.wav`);
 
     console.log(`🚀 Starting test for: ${inputFileName}`);
 
     // 2. Call the service
-    const result = await audioExtractionService.convertToWav(inputPath, outputDir);
+    const result = await audioExtractionService.convertToWav(inputPath, outputPath);
 
     // 3. Log results
     console.log('--- Extraction Complete ---');
