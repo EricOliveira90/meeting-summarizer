@@ -37,8 +37,8 @@ node C:\Code\afk\dist\afk-codex.js `
   --dry-run
 ```
 
-Proceed only when the preview reports 17 AFK slices, slice 01 / issue #44 as
-the sole initial frontier, eleven waves, and no missing dependencies.
+Proceed only when the preview reports 19 AFK slices, slice 01 / issue #44 as
+the sole initial frontier, thirteen waves, and no missing dependencies.
 
 ## Run
 
