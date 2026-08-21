@@ -128,7 +128,12 @@ export class ApiService implements IApiService {
       // Determine if this is a transient network error (tunnel down) or fatal auth error
       const isTransient = !statusCode || statusCode >= 500 || ['ECONNREFUSED', 'ECONNRESET'].includes(axiosError.code || '');
 
-      return new SyncError(msg, isTransient, statusCode);
+      return new SyncError(
+        msg,
+        isTransient,
+        statusCode,
+        axiosError.response?.data?.code
+      );
     }
 
     if (error instanceof Error) return error;

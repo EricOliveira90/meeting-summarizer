@@ -178,6 +178,26 @@ describe('ApiService', () => {
   });
 
   describe('Error Formatting (SyncError)', () => {
+    it('preserves the exact JOB_NOT_FOUND response code', async () => {
+      const axiosError = {
+        isAxiosError: true,
+        response: {
+          status: 404,
+          data: {
+            code: 'JOB_NOT_FOUND',
+            error: 'Job was not found.'
+          }
+        }
+      };
+      mockAxiosInstance.get.mockRejectedValueOnce(axiosError);
+
+      await expect(api.getJobStatus('job-123')).rejects.toMatchObject({
+        message: 'Job was not found.',
+        statusCode: 404,
+        code: 'JOB_NOT_FOUND'
+      });
+    });
+
     it('formats ECONNREFUSED as a transient error (Tunnel Down)', async () => {
       const axiosError = {
         isAxiosError: true,

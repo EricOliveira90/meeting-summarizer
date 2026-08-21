@@ -66,7 +66,8 @@ export class SyncError extends Error {
     constructor(
         public message: string,
         public isTransient: boolean, // true for ECONNREFUSED/ECONNRESET (Tunnel down), false for 401 (Bad Key)
-        public statusCode?: number
+        public statusCode?: number,
+        public code?: string
     ) {
         super(message);
         this.name = 'SyncError';
