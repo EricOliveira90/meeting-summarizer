@@ -44,14 +44,31 @@ export class AudioExtractionService {
           // Optionally get metadata to confirm duration
           ffmpeg.ffprobe(outputPath, (err, metadata) => {
             if (err) {
-              // Non-critical error, just resolve with path
-              resolve({ audioPath: outputPath });
-            } else {
-              resolve({ 
-                audioPath: outputPath, 
-                duration: metadata.format.duration 
-              });
+              reject(new Error('Unable to verify FFmpeg audio output.'));
+              return;
             }
+
+            const audioStreams = metadata.streams.filter(
+              (stream) => stream.codec_type === 'audio',
+            );
+            const audio = audioStreams[0];
+            const isWhisperWav =
+              audioStreams.length === 1 &&
+              audio?.codec_name === 'pcm_s16le' &&
+              Number(audio.sample_rate) === 16000 &&
+              audio.channels === 1;
+
+            if (!isWhisperWav) {
+              reject(new Error(
+                'FFmpeg output is not a 16-kHz mono signed 16-bit PCM WAV.',
+              ));
+              return;
+            }
+
+            resolve({
+              audioPath: outputPath,
+              duration: metadata.format.duration,
+            });
           });
         })
         .run();
