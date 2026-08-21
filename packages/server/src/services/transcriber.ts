@@ -1,9 +1,8 @@
-import { spawn } from 'child_process';
-import fs from 'fs';
-import path from 'path';
+import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
 
 export interface TranscriptionResult {
-  text: string;
   outputFilePath: string;
 }
 
@@ -15,76 +14,79 @@ export interface TranscribeOptions {
   maxSpeakers?: number;
 }
 
+export interface TranscriptionServiceOptions {
+  executablePath?: string;
+  scriptPath?: string;
+  environment?: NodeJS.ProcessEnv;
+}
+
 const WHISPER_MODEL = 'base';
-const BATCH_SIZE = '16';
+const BATCH_SIZE = 16;
 
 export class TranscriptionService {
-  private readonly venvPythonPath = path.join(process.cwd(), 'venv-whisperx', 'Scripts', 'python.exe');
-  private readonly scriptPath = path.join(process.cwd(), 'scripts', 'whisper-x.py');
-  private readonly hfToken = process.env.HUGGING_FACE_TOKEN; 
+  private readonly executablePath: string;
+  private readonly scriptPath: string;
+  private readonly environment: NodeJS.ProcessEnv;
+
+  constructor(options: TranscriptionServiceOptions = {}) {
+    this.executablePath = options.executablePath ??
+      path.join(process.cwd(), 'venv-whisperx', 'Scripts', 'python.exe');
+    this.scriptPath = options.scriptPath ??
+      path.join(process.cwd(), 'scripts', 'whisper-x.py');
+    this.environment = options.environment ?? process.env;
+  }
 
   public async transcribe(
     audioPath: string,
     outputTxtPath: string,
     options: TranscribeOptions,
   ): Promise<TranscriptionResult> {
+    if (!fs.existsSync(this.executablePath)) {
+      throw new Error('Whisper executable was not found.');
+    }
+
+    const args = [
+      this.scriptPath,
+      audioPath,
+      '--model', options.model || WHISPER_MODEL,
+      '--batch_size', (options.batchSize ?? BATCH_SIZE).toString(),
+      '--output_file', outputTxtPath,
+    ];
+
+    if (options.language && options.language !== 'auto') {
+      args.push('--language', options.language);
+    }
+    if (options.minSpeakers !== undefined) {
+      args.push('--min_speakers', options.minSpeakers.toString());
+    }
+    if (options.maxSpeakers !== undefined) {
+      args.push('--max_speakers', options.maxSpeakers.toString());
+    }
+
+    console.log(`Spawning WhisperX for ${path.basename(audioPath)}.`);
+
     return new Promise((resolve, reject) => {
-      
-      if (!fs.existsSync(this.venvPythonPath)) {
-        return reject(new Error(`Virtual Environment Python not found`));
-      }
+      const child = spawn(this.executablePath, args, {
+        env: { ...this.environment },
+        stdio: 'ignore',
+        windowsHide: true,
+      });
 
-      console.log(`🎙️  Spawning WhisperX: ${path.basename(audioPath)}`);
-      
-      // Build Arguments (use model from options if provided, otherwise default)
-      const model = options.model || WHISPER_MODEL;
-      const args = [
-        this.scriptPath,
-        audioPath,
-        '--model', model,
-        '--batch_size', (options.batchSize ?? parseInt(BATCH_SIZE)).toString(),
-        '--hf_token', this.hfToken || '', 
-        '--output_file', outputTxtPath
-      ];
-
-      // Add Optional Flags
-      if (options.language && options.language !== 'auto') {
-        args.push('--language', options.language);
-      }
-      if (options.minSpeakers !== undefined) {
-        args.push('--min_speakers', options.minSpeakers.toString());
-      }
-      if (options.maxSpeakers !== undefined) {
-        args.push('--max_speakers', options.maxSpeakers.toString());
-      }
-
-      const pythonProcess = spawn(this.venvPythonPath, args);
-
-      let stdoutData = '';
-      let stderrData = '';
-
-      pythonProcess.stdout.on('data', (data) => { stdoutData += data.toString(); });
-      pythonProcess.stderr.on('data', (data) => { stderrData += data.toString(); });
-
-      pythonProcess.on('close', async (code) => {
+      child.once('error', () => {
+        reject(new Error('Unable to start transcription.'));
+      });
+      child.once('close', (code) => {
         if (code !== 0) {
-           // Try parsing JSON error
-           try {
-             const errorJson = JSON.parse(stdoutData);
-             if (errorJson.error) return reject(new Error(`WhisperX Error: ${errorJson.error}`));
-           } catch(e) {}
-           return reject(new Error(`Transcription failed (Code ${code}). Stderr: ${stderrData}`));
+          reject(new Error(`Transcription failed (code ${code ?? 'unknown'}).`));
+          return;
+        }
+        if (!fs.existsSync(outputTxtPath)) {
+          reject(new Error('Transcription output is missing.'));
+          return;
         }
 
-        try {
-            if (!fs.existsSync(outputTxtPath)) return reject(new Error(`Output file missing: ${outputTxtPath}`));
-            
-            const fileContent = await fs.promises.readFile(outputTxtPath, 'utf-8');
-            console.log(`✅ Transcription saved.`);
-            resolve({ text: fileContent.trim(), outputFilePath: outputTxtPath });
-        } catch (readError: any) {
-            reject(new Error(`Failed to read transcript: ${readError.message}`));
-        }
+        console.log('Transcription completed.');
+        resolve({ outputFilePath: outputTxtPath });
       });
     });
   }

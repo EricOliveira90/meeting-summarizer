@@ -78,13 +78,6 @@ async function main() {
 ⏱️  Duration: ${elapsed}s
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
 
-    // Preview first 500 chars
-    const preview = result.text.substring(0, 500);
-    console.log(`\nPreview (first 500 chars):\n${preview}`);
-    if (result.text.length > 500) {
-      console.log('...\n');
-    }
-
   } catch (error: any) {
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     console.error(`

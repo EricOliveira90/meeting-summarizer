@@ -50,7 +50,6 @@ def main():
     parser.add_argument('audio_path', type=str)
     parser.add_argument('--model', type=str, default="turbo")
     parser.add_argument('--batch_size', type=int, default=32)
-    parser.add_argument('--hf_token', type=str, required=True)
     parser.add_argument('--language', type=str, default=None)
     parser.add_argument('--min_speakers', type=int, default=None)
     parser.add_argument('--max_speakers', type=int, default=None)
@@ -59,6 +58,9 @@ def main():
     parser.add_argument('--output_file', type=str, required=True, help="Path for the output txt file")
     
     args = parser.parse_args()
+    hf_token = os.environ.get("HUGGING_FACE_TOKEN")
+    if not hf_token:
+        parser.error("HUGGING_FACE_TOKEN is required")
 
     final_result = None
 
@@ -89,7 +91,7 @@ def main():
             cleanup()
 
             # 3. Diarize
-            diarize_model = DiarizationPipeline(use_auth_token=args.hf_token, device=device)
+            diarize_model = DiarizationPipeline(use_auth_token=hf_token, device=device)
             diarize_segments = diarize_model(audio, min_speakers=args.min_speakers, max_speakers=args.max_speakers)
             final_result = whisperx.assign_word_speakers(diarize_segments, result)
             
