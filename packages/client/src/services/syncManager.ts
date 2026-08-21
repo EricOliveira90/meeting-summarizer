@@ -72,14 +72,15 @@ export class SyncManager {
         const readyJobs = await this.db.getReadyToFetch();
 
         for (const job of readyJobs) {
+            const baseName = job.originalFilename.replace(/\.[^/.]+$/, "");
+            const transcriptPath = this.fs.joinPathsInProjectFolder(
+                'transcriptions',
+                `${baseName}_transcription.txt`
+            );
+            const temporaryPath = `${transcriptPath}.${job.id}.tmp`;
+
             try {
                 const transcript = await this.api.getTranscript(job.id);
-                const baseName = job.originalFilename.replace(/\.[^/.]+$/, "");
-                const transcriptPath = this.fs.joinPathsInProjectFolder(
-                    'transcriptions',
-                    `${baseName}_transcription.txt`
-                );
-                const temporaryPath = `${transcriptPath}.${job.id}.tmp`;
 
                 await this.fs.writeFile(temporaryPath, transcript);
                 const verifiedTranscript = await this.fs.readFile(temporaryPath);
@@ -88,8 +89,11 @@ export class SyncManager {
                 }
                 await this.fs.renameFile(temporaryPath, transcriptPath);
             } catch (error) {
-                // If tunnel drops during fetch, catch and leave as READY to try next time.
-                console.error(`Failed to fetch results for ${job.id}`, error);
+                await this.fs.deleteFile(temporaryPath);
+                const reason = error instanceof Error ? error.message : String(error);
+                console.error(
+                    `Transcript download failed for ${job.id}; retry on next Manual Sync: ${reason}`
+                );
             }
         }
     }

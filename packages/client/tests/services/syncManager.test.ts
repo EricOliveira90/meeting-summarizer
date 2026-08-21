@@ -473,5 +473,74 @@ describe('SyncManager', () => {
       expect(mockDb.markCompleted).not.toHaveBeenCalled();
       expect(mockNote.saveNote).not.toHaveBeenCalled();
     });
+
+    it.each([
+      {
+        fault: 'write',
+        reason: 'disk full'
+      },
+      {
+        fault: 'read',
+        reason: 'verification read failed'
+      },
+      {
+        fault: 'mismatch',
+        reason: 'Transcript verification mismatch'
+      },
+      {
+        fault: 'rename',
+        reason: 'rename blocked'
+      }
+    ])('preserves the final Transcript and cleans temporary data after a $fault fault', async ({
+      fault,
+      reason
+    }) => {
+      const transcript = 'Speaker 1: New Transcript';
+      const finalPath = 'transcriptions/meeting_transcription.txt';
+      const temporaryPath = `${finalPath}.job-123.tmp`;
+      const sentinel = 'PRIOR FINAL TRANSCRIPT';
+      const files = new Map([[finalPath, sentinel]]);
+      const fakeJob = {
+        id: 'job-123',
+        clientStatus: ClientJobStatus.READY,
+        originalFilename: 'meeting.wav'
+      };
+      mockDb.getAll.mockResolvedValue([fakeJob]);
+      mockDb.getReadyToFetch.mockResolvedValue([fakeJob]);
+      mockApi.getTranscript.mockResolvedValue(transcript);
+      mockFileSystem.writeFile.mockImplementation(async (path: string, content: string) => {
+        files.set(path, content);
+        if (fault === 'write') throw new Error(reason);
+      });
+      mockFileSystem.readFile.mockImplementation(async (path: string) => {
+        if (fault === 'read') throw new Error(reason);
+        if (fault === 'mismatch') return 'CORRUPTED TRANSCRIPT';
+        return files.get(path);
+      });
+      mockFileSystem.renameFile.mockImplementation(async (source: string, destination: string) => {
+        if (fault === 'rename') throw new Error(reason);
+        files.set(destination, files.get(source));
+        files.delete(source);
+      });
+      mockFileSystem.deleteFile.mockImplementation(async (path: string) => {
+        files.delete(path);
+      });
+      const stderr = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+      await syncManager.runFullSyncCycle();
+
+      expect(files.get(finalPath)).toBe(sentinel);
+      expect(files.has(temporaryPath)).toBe(false);
+      expect(mockFileSystem.deleteFile).toHaveBeenCalledWith(temporaryPath);
+      expect(stderr).toHaveBeenCalledWith(
+        `Transcript download failed for job-123; retry on next Manual Sync: ${reason}`
+      );
+      expect(fakeJob.clientStatus).toBe(ClientJobStatus.READY);
+      expect(mockApi.uploadMeeting).not.toHaveBeenCalled();
+      expect(mockDb.updateStatus).not.toHaveBeenCalled();
+      expect(mockDb.markCompleted).not.toHaveBeenCalled();
+      expect(mockNote.saveNote).not.toHaveBeenCalled();
+      stderr.mockRestore();
+    });
   });
 });
