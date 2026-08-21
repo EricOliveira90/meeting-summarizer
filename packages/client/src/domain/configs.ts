@@ -28,10 +28,18 @@ export interface ObsidianConfig {
   activeTemplateName: string;
 }
 
+export type SummaryProviderName = 'codex';
+
+export interface CodexConfig {
+  model: string;
+}
+
 export interface AppConfig {
   audioRec: AudioRecConfig;
   server: ServerConfig;
   paths: PathConfig;
   audio: AudioConfig;
   obsidian: ObsidianConfig;
+  defaultProvider: SummaryProviderName;
+  codex: CodexConfig;
 }

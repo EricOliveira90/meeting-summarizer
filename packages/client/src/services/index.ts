@@ -1,5 +1,6 @@
 export * from './api'
 export * from './audioRec'
+export * from './codexProvider'
 export * from './config'
 export * from './db'
 export * from './ingestion'

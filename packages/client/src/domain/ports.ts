@@ -1,6 +1,19 @@
 import { UploadOptions, UploadResponse, Job, JobResponse } from "@meeting-summarizer/shared";
 import { ClientJob, ClientJobStatus, HealthStatus, Meeting, MeetingStatus, CreateMeetingInput } from "./models";
 
+export type ProviderReadinessStatus = 'ready' | 'failed' | 'not_checked';
+
+export interface ProviderReadinessResult {
+  status: ProviderReadinessStatus;
+  reason?: string;
+}
+
+export interface CodexReadiness {
+  executable: ProviderReadinessResult;
+  authentication: ProviderReadinessResult;
+  model: ProviderReadinessResult;
+}
+
 export interface IIngestion {
   scanDirectory(): Promise<void>;
   ingestFile(oldPath: string): Promise<void>;

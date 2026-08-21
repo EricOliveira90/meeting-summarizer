@@ -26,7 +26,11 @@ const defaults: AppConfig = {
     availableTemplates: noteTemplatesList, 
     // The specific Obsidian template the user currently wants to use
     activeTemplateName: NoteTemplate.STD_MEETING 
-  }
+  },
+  defaultProvider: 'codex',
+  codex: {
+    model: process.env.CODEX_MODEL || 'gpt-5-codex'
+  },
 };
 
 class ConfigService {
