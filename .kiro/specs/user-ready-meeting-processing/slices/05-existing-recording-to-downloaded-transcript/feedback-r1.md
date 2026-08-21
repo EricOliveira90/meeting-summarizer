@@ -1,0 +1,10 @@
+## Evaluator feedback — round 1
+
+VERDICT: REVISE
+GAPS: 3
+RE_RAISED_GAPS: 0
+
+### If REVISE, specific gaps:
+- **In scope / Test plan:** The contract says, "only external ingestion/Note collaborators and FFmpeg/Whisper process adapters are replaced," but later requires "a failed notebook write/read/rename or interrupted download." The current deterministic fault seam for write, verification-read, mismatch, and rename failures is the injected `IFileManager`; a real `NodeFileSystem` cannot reliably produce all of those faults while preserving an existing final file across supported operating systems. Either permit a fault-injected filesystem collaborator for these failure cases or narrow this suite to an executable interruption case and rely on #47 for filesystem faults. As written, the replacement boundary and test promise conflict, violating UAT-verifiability and boundary explicitness.
+- **In scope / Test plan:** In scope promises, "Every observed status body excludes artifact-root values, artifact path keys, Transcript/Summary text, and credential sentinels," while the test plan checks only "every success status." The extractor/transcriber scenarios also observe `FAILED` status bodies, so a failure-only path or credential leak could pass the planned suite. Apply the same prohibited-key/value assertions to every observed success and failure status body, or narrow the in-scope promise. This violates falsifiability.
+- **In scope / Test plan:** In scope broadly requires "Integrated auth, validation ... failures preserve the exact code or failure classification owned by #45-#47," but the test plan says only "invalid creation metadata" without naming the malformed header/value or its expected status, code, and message. Any single convenient rejection could satisfy that line while other claimed validation outcomes regress. Enumerate the exact integrated validation cases and expected triples, or explicitly select and name a representative case and narrow the scope to it. This violates falsifiability and single-session feasibility.
