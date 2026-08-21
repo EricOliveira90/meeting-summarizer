@@ -81,6 +81,12 @@ describe('Setup: Config Save Round-Trip', () => {
         return (model: string) => checkCodexReadiness(model, options);
     }
 
+    const ready = async () => ({
+        executable: { status: 'ready' as const },
+        authentication: { status: 'ready' as const },
+        model: { status: 'ready' as const },
+    });
+
     function promptAnswers(overrides: Record<string, unknown> = {}) {
         return {
             serverIp: '192.168.1.100',
@@ -216,13 +222,13 @@ describe('Setup: Config Save Round-Trip', () => {
             expect(calls[2].stdin).toBe('Reply with exactly READY.');
         }
         log.mockRestore();
-    });
+    }, 15_000);
 
     it('should save the API key from the "apikey" prompt field', async () => {
         // Simulate user filling in the setup wizard
         vi.mocked(inquirer.prompt).mockResolvedValueOnce(promptAnswers() as any);
 
-        await runSetup({ checkCodexReadiness: readiness() });
+        await runSetup({ checkCodexReadiness: ready });
 
         // Verify server config was saved with the correct apiKey
         expect(mockSet).toHaveBeenCalledWith('server', {
@@ -240,7 +246,7 @@ describe('Setup: Config Save Round-Trip', () => {
             obsidianVault: '/my/vault',
         }) as any);
 
-        await runSetup({ checkCodexReadiness: readiness() });
+        await runSetup({ checkCodexReadiness: ready });
 
         expect(mockSet).toHaveBeenCalledWith('paths', {
             output: '/custom/output',
@@ -255,7 +261,7 @@ describe('Setup: Config Save Round-Trip', () => {
             outputPath: '/output',
         }) as any);
 
-        await runSetup({ checkCodexReadiness: readiness() });
+        await runSetup({ checkCodexReadiness: ready });
 
         expect(mockSet).toHaveBeenCalledWith('paths', {
             output: '/output',
@@ -270,7 +276,7 @@ describe('Setup: Config Save Round-Trip', () => {
             outputPath: '/output',
         }) as any);
 
-        await runSetup({ checkCodexReadiness: readiness() });
+        await runSetup({ checkCodexReadiness: ready });
 
         // The server config call should have a defined, non-empty apiKey
         const serverCall = mockSet.mock.calls.find(

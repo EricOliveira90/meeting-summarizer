@@ -46,7 +46,35 @@ if (args[0] === '--version') {
     process.exitCode = 1;
   } else {
     const outputIndex = args.indexOf('--output-last-message');
-    if (mode === 'stdout-overflow') {
+    if (mode === 'auth-permission-model') {
+      process.stderr.write(
+        'Not logged in; permission denied; model "missing-model" is not supported\n',
+      );
+      process.exitCode = 23;
+    } else if (mode === 'permission-model') {
+      process.stderr.write(
+        'permission denied; model "missing-model" is not supported\n',
+      );
+      process.exitCode = 23;
+    } else if (mode === 'model-process-empty') {
+      process.stderr.write('model "missing-model" is not supported\n');
+      fs.writeFileSync(args[outputIndex + 1], ' \n ');
+      process.exitCode = 23;
+    } else if (mode === 'process-empty') {
+      fs.writeFileSync(args[outputIndex + 1], ' \n ');
+      process.exitCode = 23;
+    } else if (mode === 'overflow-auth') {
+      process.stderr.write(`Not logged in ${'x'.repeat(64)}`);
+      setInterval(() => {}, 1_000);
+    } else if (mode === 'redaction-failure') {
+      process.stdout.write(process.env.FAKE_CODEX_STDOUT_CANARY);
+      process.stderr.write(process.env.FAKE_CODEX_STDERR_CANARY);
+      fs.writeFileSync(
+        args[outputIndex + 1],
+        process.env.FAKE_CODEX_FINAL_CANARY,
+      );
+      process.exitCode = 23;
+    } else if (mode === 'stdout-overflow') {
       process.stdout.write('x'.repeat(64));
       setInterval(() => {}, 1_000);
     } else if (mode === 'stderr-overflow') {
@@ -54,6 +82,9 @@ if (args[0] === '--version') {
       setInterval(() => {}, 1_000);
     } else if (mode === 'file-overflow') {
       fs.writeFileSync(args[outputIndex + 1], 'x'.repeat(64));
+      if (process.env.FAKE_CODEX_OUTPUT_WRITTEN_PATH) {
+        fs.writeFileSync(process.env.FAKE_CODEX_OUTPUT_WRITTEN_PATH, 'written');
+      }
       setInterval(() => {}, 1_000);
     } else if (mode === 'hang') {
       fs.writeFileSync(args[outputIndex + 1], 'SENSITIVE TEMP CONTENT');

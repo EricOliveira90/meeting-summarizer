@@ -348,4 +348,161 @@ describe('CodexProvider', () => {
       },
     });
   });
+
+  it.each([
+    {
+      mode: 'overflow-auth',
+      options: { stderrLimitBytes: 8 },
+      expected: {
+        category: 'PROCESS',
+        retryable: true,
+        message: 'Codex output exceeded the capture limit.',
+      },
+    },
+    {
+      mode: 'auth-permission-model',
+      expected: {
+        category: 'AUTHENTICATION',
+        retryable: false,
+        message: 'Codex authentication is unavailable.',
+      },
+    },
+    {
+      mode: 'permission-model',
+      expected: {
+        category: 'PERMISSION',
+        retryable: false,
+        message: 'Codex permission was denied.',
+      },
+    },
+    {
+      mode: 'model-process-empty',
+      expected: {
+        category: 'MODEL',
+        retryable: false,
+        message: 'The selected Codex model is unavailable.',
+      },
+    },
+    {
+      mode: 'process-empty',
+      expected: {
+        category: 'PROCESS',
+        retryable: true,
+        message: 'Codex failed (exit 23).',
+      },
+    },
+  ])('applies failure precedence for $mode', async ({
+    mode,
+    options,
+    expected,
+  }) => {
+    const provider = new CodexProvider({
+      model: MODEL_CANARY,
+      executablePath: process.execPath,
+      executableArgs: [fakeCodexPath],
+      environment: {
+        ...process.env,
+        FAKE_CODEX_MODE: mode,
+      },
+      tempDirectory: tempDir,
+      ...options,
+    });
+
+    await expect(provider.summarize({
+      transcript: TRANSCRIPT_CANARY,
+      template: AIPromptTemplate.MEETING,
+    })).resolves.toEqual({ success: false, error: expected });
+  });
+
+  it('prioritizes cancellation over timeout and timeout over overflow', async () => {
+    const alreadyCancelled = new AbortController();
+    alreadyCancelled.abort();
+    const cancellation = new CodexProvider({
+      model: MODEL_CANARY,
+      executablePath: process.execPath,
+      executableArgs: [fakeCodexPath],
+      environment: {
+        ...process.env,
+        FAKE_CODEX_MODE: 'hang',
+      },
+      tempDirectory: tempDir,
+      timeoutMs: 0,
+    });
+    await expect(cancellation.summarize(
+      {
+        transcript: TRANSCRIPT_CANARY,
+        template: AIPromptTemplate.MEETING,
+      },
+      alreadyCancelled.signal,
+    )).resolves.toMatchObject({
+      success: false,
+      error: { category: 'CANCELLED' },
+    });
+
+    const outputWrittenPath = path.join(tempDir, 'output-written');
+    const timeoutWithOversizedFile = new CodexProvider({
+      model: MODEL_CANARY,
+      executablePath: process.execPath,
+      executableArgs: [fakeCodexPath],
+      environment: {
+        ...process.env,
+        FAKE_CODEX_MODE: 'file-overflow',
+        FAKE_CODEX_OUTPUT_WRITTEN_PATH: outputWrittenPath,
+      },
+      tempDirectory: tempDir,
+      timeoutMs: 2_000,
+      finalMessageLimitBytes: 8,
+      finalMessagePollIntervalMs: 5_000,
+    });
+    await expect(timeoutWithOversizedFile.summarize({
+      transcript: TRANSCRIPT_CANARY,
+      template: AIPromptTemplate.MEETING,
+    })).resolves.toMatchObject({
+      success: false,
+      error: { category: 'TIMEOUT' },
+    });
+    expect(fs.readFileSync(outputWrittenPath, 'utf8')).toBe('written');
+  });
+
+  it('redacts all sensitive inputs and child output from errors and logs', async () => {
+    const credential = 'CREDENTIAL-CANARY';
+    const stdout = 'STDOUT-CANARY';
+    const stderr = 'STDERR-CANARY';
+    const finalMessage = 'FINAL-MESSAGE-CANARY';
+    const provider = new CodexProvider({
+      model: MODEL_CANARY,
+      executablePath: process.execPath,
+      executableArgs: [fakeCodexPath],
+      environment: {
+        ...process.env,
+        FAKE_CODEX_MODE: 'redaction-failure',
+        CODEX_CREDENTIAL: credential,
+        FAKE_CODEX_STDOUT_CANARY: stdout,
+        FAKE_CODEX_STDERR_CANARY: stderr,
+        FAKE_CODEX_FINAL_CANARY: finalMessage,
+      },
+      tempDirectory: tempDir,
+    });
+
+    const result = await provider.summarize({
+      transcript: TRANSCRIPT_CANARY,
+      template: AIPromptTemplate.TRAINING,
+    });
+    const observable = JSON.stringify([
+      result,
+      ...logs.flatMap((log) => log.mock.calls),
+    ]);
+
+    for (const canary of [
+      credential,
+      MODEL_CANARY,
+      TRANSCRIPT_CANARY,
+      SUMMARY_PROMPTS[AIPromptTemplate.TRAINING],
+      stdout,
+      stderr,
+      finalMessage,
+    ]) {
+      expect(observable).not.toContain(canary);
+    }
+  });
 });

@@ -26,6 +26,7 @@ export interface CodexProviderOptions {
   stdoutLimitBytes?: number;
   stderrLimitBytes?: number;
   finalMessageLimitBytes?: number;
+  finalMessagePollIntervalMs?: number;
 }
 
 interface ProcessResult {
@@ -134,7 +135,7 @@ function runProcess(
             const stats = await fs.stat(outputPath);
             if (stats.size > finalMessageLimit) markOverflow();
           } catch {}
-        }, 10)
+        }, options.finalMessagePollIntervalMs ?? 10)
       : undefined;
     const finish = (result: ProcessResult) => {
       if (settled) return;
@@ -383,6 +384,13 @@ export class CodexProvider implements SummaryProvider {
         signal,
         outputPath,
       );
+
+      if (result.cancelled || result.timedOut) {
+        return {
+          success: false,
+          error: classifyProcessFailure(result)!,
+        };
+      }
 
       if (result.outputOverflow) {
         return {
