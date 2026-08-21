@@ -1,5 +1,5 @@
 import path from 'path';
-import { audioExtractionService } from './services';
+import { audioExtractionService } from './services/audio-extractor';
 
 async function runExtraction() {
   try {
