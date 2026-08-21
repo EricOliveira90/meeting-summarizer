@@ -24,14 +24,18 @@ describe('Server API', () => {
     await app.ready();
   });
 
-  it('GET / should return online status', async () => {
+  it('GET / should return online status with permissive CORS', async () => {
     const response = await app.inject({
       method: 'GET',
       url: '/',
-      headers: { 'x-api-key': apiKey },
+      headers: {
+        'x-api-key': apiKey,
+        origin: 'https://notebook.example',
+      },
     });
 
     expect(response.statusCode).toBe(200);
+    expect(response.headers['access-control-allow-origin']).toBe('*');
     expect(response.json()).toEqual({ 
       status: 'online', 
       service: 'Meeting Summarizer Server' 
