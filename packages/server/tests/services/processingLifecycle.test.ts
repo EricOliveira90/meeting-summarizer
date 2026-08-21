@@ -129,4 +129,91 @@ describe('Authenticated processing lifecycle', () => {
       currentStep: JobStep.TRANSCRIPT_READY,
     });
   });
+
+  it.each([
+    JobStep.EXTRACTING_AUDIO,
+    JobStep.TRANSCRIBING,
+  ])('exposes an authenticated %s failure with its active step', async (failedStep) => {
+    const job: JobRecord = {
+      id: `failed-${failedStep.toLowerCase()}`,
+      originalFilename: 'Recording.wav',
+      filePath: '/artifacts/accepted Recording.wav',
+      serverStatus: 'PENDING',
+      recordedAt: '2026-08-20T12:00:00.000Z',
+      currentStep: JobStep.QUEUED,
+      steps: createInitialSteps(),
+    };
+    const jobStore = {
+      getAll: vi.fn(async () => [job]),
+      getById: vi.fn(async (id: string) => id === job.id ? job : undefined),
+      replace: vi.fn(async () => {}),
+      delete: vi.fn(async () => {}),
+    };
+    const artifacts = {
+      getAudioPath: vi.fn(() => '/artifacts/exact audio.wav'),
+      getTranscriptPath: vi.fn(() => '/artifacts/exact Transcript.txt'),
+      fileExists: vi.fn(async () => true),
+    };
+    const dependencies: ProcessingDependencies = {
+      jobStore,
+      artifacts,
+      audioExtractor: {
+        convertToWav: vi.fn(async () => {
+          if (failedStep === JobStep.EXTRACTING_AUDIO) {
+            throw new Error('Extraction failed');
+          }
+          return { audioPath: '/artifacts/exact audio.wav' };
+        }),
+      },
+      transcriber: {
+        transcribe: vi.fn(async () => {
+          throw new Error('Transcription failed');
+        }),
+      },
+    };
+    const app = buildServer({
+      apiKey: API_KEY,
+      dependencies: {
+        artifacts: {
+          root: '/artifacts',
+          ...artifacts,
+          getUploadPath: vi.fn(),
+          getSummaryPath: vi.fn(),
+          ensureDirectories: vi.fn(),
+          stageRecording: vi.fn(),
+          commitRecording: vi.fn(),
+          deleteRecording: vi.fn(),
+          readTranscript: vi.fn(),
+          readSummary: vi.fn(),
+          deleteJobFiles: vi.fn(),
+        } as any,
+        jobQueue: { push: vi.fn() },
+        jobStore,
+      },
+    });
+    apps.push(app);
+    await app.ready();
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    try {
+      await expect(processMeetingJob(
+        { jobId: job.id, filePath: job.filePath },
+        dependencies,
+      )).rejects.toThrow();
+
+      const response = await app.inject({
+        method: 'GET',
+        url: `/jobs/${job.id}`,
+        headers: { 'x-api-key': API_KEY },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        serverStatus: 'FAILED',
+        failedStep,
+      });
+    } finally {
+      errorLog.mockRestore();
+    }
+  });
 });
