@@ -316,7 +316,14 @@ describe('SyncManager', () => {
 
     it('should prompt for configuration if missing and save it to the DB', async () => {
       // Arrange
-      const fakeJob = { id: '124', clientStatus: ClientJobStatus.WAITING_UPLOAD, originalFilename: 'test.mkv' } as any;
+      const fakeJob = {
+        id: '124',
+        filePath: 'C:/recordings/test.mkv',
+        recordedAt: '2026-08-20T09:30:00-03:00',
+        meetingId: 'meeting-456',
+        clientStatus: ClientJobStatus.WAITING_UPLOAD,
+        originalFilename: 'test.mkv'
+      } as any;
       mockApi.uploadMeeting.mockResolvedValue({ success: true });
 
       // Act
@@ -332,6 +339,23 @@ describe('SyncManager', () => {
             maxSpeakers: 3
           }
       );
+      expect(mockApi.getJobStatus).toHaveBeenCalledWith('124');
+      expect(mockApi.uploadMeeting).toHaveBeenCalledWith(
+        'C:/recordings/test.mkv',
+        '124',
+        '2026-08-20T09:30:00-03:00',
+        {
+          language: TranscriptionLanguage.ENGLISH,
+          template: AIPromptTemplate.MEETING,
+          minSpeakers: 1,
+          maxSpeakers: 3
+        }
+      );
+      expect(fakeJob).toMatchObject({
+        id: '124',
+        recordedAt: '2026-08-20T09:30:00-03:00',
+        meetingId: 'meeting-456'
+      });
     });
   });
 
