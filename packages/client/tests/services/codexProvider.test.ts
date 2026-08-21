@@ -120,4 +120,43 @@ describe('CodexProvider', () => {
       },
     });
   });
+
+  it.each([
+    'stdout-overflow',
+    'stderr-overflow',
+    'file-overflow',
+  ])('bounds and terminates live Codex after %s', async (mode) => {
+    const pidPath = path.join(tempDir, `${mode}.pid`);
+    const provider = new CodexProvider({
+      model: MODEL_CANARY,
+      executablePath: process.execPath,
+      executableArgs: [fakeCodexPath],
+      environment: {
+        ...process.env,
+        FAKE_CODEX_MODE: mode,
+        FAKE_CODEX_PROTOCOL_PATH: protocolPath,
+        FAKE_CODEX_PID_PATH: pidPath,
+      },
+      tempDirectory: tempDir,
+      stdoutLimitBytes: 8,
+      stderrLimitBytes: 8,
+      finalMessageLimitBytes: 8,
+    });
+
+    const result = await provider.summarize({
+      transcript: TRANSCRIPT_CANARY,
+      template: AIPromptTemplate.MEETING,
+    });
+
+    expect(result).toEqual({
+      success: false,
+      error: {
+        category: 'PROCESS',
+        retryable: true,
+        message: 'Codex output exceeded the capture limit.',
+      },
+    });
+    const pid = Number(fs.readFileSync(pidPath, 'utf8'));
+    expect(() => process.kill(pid, 0)).toThrow();
+  });
 });

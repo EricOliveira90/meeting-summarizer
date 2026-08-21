@@ -21,6 +21,10 @@ export interface CodexProviderOptions {
   executableArgs?: string[];
   environment?: NodeJS.ProcessEnv;
   tempDirectory?: string;
+  timeoutMs?: number;
+  stdoutLimitBytes?: number;
+  stderrLimitBytes?: number;
+  finalMessageLimitBytes?: number;
 }
 
 interface ProcessResult {
@@ -28,7 +32,14 @@ interface ProcessResult {
   stdout: string;
   stderr: string;
   spawnFailed: boolean;
+  cancelled: boolean;
+  timedOut: boolean;
+  outputOverflow: boolean;
 }
+
+const DEFAULT_TIMEOUT_MS = 120_000;
+const DEFAULT_STREAM_LIMIT_BYTES = 64 * 1024;
+const DEFAULT_FINAL_MESSAGE_LIMIT_BYTES = 1024 * 1024;
 
 function codexExecArgs(model: string, outputPath: string): string[] {
   return [
@@ -54,8 +65,16 @@ function runProcess(
   args: string[],
   options: CodexProviderOptions,
   stdin?: string,
+  signal?: AbortSignal,
+  outputPath?: string,
 ): Promise<ProcessResult> {
   return new Promise((resolve) => {
+    const stdoutLimit =
+      options.stdoutLimitBytes ?? DEFAULT_STREAM_LIMIT_BYTES;
+    const stderrLimit =
+      options.stderrLimitBytes ?? DEFAULT_STREAM_LIMIT_BYTES;
+    const finalMessageLimit =
+      options.finalMessageLimitBytes ?? DEFAULT_FINAL_MESSAGE_LIMIT_BYTES;
     const child = spawn(
       options.executablePath ?? 'codex',
       [...(options.executableArgs ?? []), ...args],
@@ -68,28 +87,95 @@ function runProcess(
     );
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
     let settled = false;
+    let cancelled = false;
+    let timedOut = false;
+    let outputOverflow = false;
 
-    child.stdout?.on('data', (chunk: Buffer) => stdout.push(Buffer.from(chunk)));
-    child.stderr?.on('data', (chunk: Buffer) => stderr.push(Buffer.from(chunk)));
-    child.once('error', () => {
+    const terminate = () => {
+      if (child.exitCode === null && !child.killed) {
+        child.kill();
+      }
+    };
+    const markOverflow = () => {
+      outputOverflow = true;
+      terminate();
+    };
+    const capture = (
+      chunks: Buffer[],
+      chunk: Buffer,
+      bytes: number,
+      limit: number,
+    ): number => {
+      const remaining = Math.max(0, limit + 1 - bytes);
+      if (remaining > 0) {
+        chunks.push(Buffer.from(chunk.subarray(0, remaining)));
+        bytes += Math.min(chunk.length, remaining);
+      }
+      if (bytes > limit) markOverflow();
+      return bytes;
+    };
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      terminate();
+    }, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+    const abort = () => {
+      cancelled = true;
+      terminate();
+    };
+    signal?.addEventListener('abort', abort, { once: true });
+    if (signal?.aborted) abort();
+    const fileMonitor = outputPath
+      ? setInterval(async () => {
+          try {
+            const stats = await fs.stat(outputPath);
+            if (stats.size > finalMessageLimit) markOverflow();
+          } catch {}
+        }, 10)
+      : undefined;
+    const finish = (result: ProcessResult) => {
       if (settled) return;
       settled = true;
-      resolve({
+      clearTimeout(timeout);
+      if (fileMonitor) clearInterval(fileMonitor);
+      signal?.removeEventListener('abort', abort);
+      resolve(result);
+    };
+
+    child.stdout?.on('data', (chunk: Buffer) => {
+      stdoutBytes = capture(stdout, chunk, stdoutBytes, stdoutLimit);
+    });
+    child.stderr?.on('data', (chunk: Buffer) => {
+      stderrBytes = capture(stderr, chunk, stderrBytes, stderrLimit);
+    });
+    child.once('error', () => {
+      finish({
         exitCode: null,
         stdout: '',
         stderr: '',
         spawnFailed: true,
+        cancelled,
+        timedOut,
+        outputOverflow,
       });
     });
-    child.once('close', (exitCode) => {
-      if (settled) return;
-      settled = true;
-      resolve({
+    child.once('close', async (exitCode) => {
+      if (outputPath) {
+        try {
+          const stats = await fs.stat(outputPath);
+          if (stats.size > finalMessageLimit) outputOverflow = true;
+        } catch {}
+      }
+      finish({
         exitCode,
         stdout: Buffer.concat(stdout).toString('utf8'),
         stderr: Buffer.concat(stderr).toString('utf8'),
         spawnFailed: false,
+        cancelled,
+        timedOut,
+        outputOverflow,
       });
     });
 
@@ -99,6 +185,23 @@ function runProcess(
       child.stdin?.end();
     }
   });
+}
+
+async function readBoundedFile(
+  filePath: string,
+  limit: number,
+): Promise<{ output: string; overflow: boolean }> {
+  const file = await fs.open(filePath, 'r');
+  try {
+    const buffer = Buffer.alloc(limit + 1);
+    const { bytesRead } = await file.read(buffer, 0, buffer.length, 0);
+    return {
+      output: buffer.subarray(0, bytesRead).toString('utf8'),
+      overflow: bytesRead > limit,
+    };
+  } finally {
+    await file.close();
+  }
 }
 
 function notChecked() {
@@ -157,13 +260,23 @@ export async function checkCodexReadiness(
       codexExecArgs(model, outputPath),
       options,
       'Reply with exactly READY.',
+      undefined,
+      outputPath,
     );
     let output = '';
     try {
-      output = await fs.readFile(outputPath, 'utf8');
+      const finalMessage = await readBoundedFile(
+        outputPath,
+        options.finalMessageLimitBytes ?? DEFAULT_FINAL_MESSAGE_LIMIT_BYTES,
+      );
+      if (!finalMessage.overflow) output = finalMessage.output;
     } catch {}
 
-    if (probe.exitCode !== 0 || output.replace(/\r\n/g, '\n').trim() !== 'READY') {
+    if (
+      probe.outputOverflow ||
+      probe.exitCode !== 0 ||
+      output.replace(/\r\n/g, '\n').trim() !== 'READY'
+    ) {
       return {
         executable: { status: 'ready' },
         authentication: { status: 'ready' },
@@ -198,7 +311,7 @@ export class CodexProvider implements SummaryProvider {
 
   public async summarize(
     input: SummaryInput,
-    _signal?: AbortSignal,
+    signal?: AbortSignal,
   ): Promise<SummaryProviderResult> {
     const outputPath = path.join(
       this.options.tempDirectory ?? os.tmpdir(),
@@ -210,7 +323,20 @@ export class CodexProvider implements SummaryProvider {
       codexExecArgs(this.model, outputPath),
       this.options,
       prompt,
+      signal,
+      outputPath,
     );
+
+    if (result.outputOverflow) {
+      return {
+        success: false,
+        error: {
+          category: 'PROCESS',
+          retryable: true,
+          message: 'Codex output exceeded the capture limit.',
+        },
+      };
+    }
 
     if (result.exitCode !== 0) {
       return {
@@ -223,7 +349,23 @@ export class CodexProvider implements SummaryProvider {
       };
     }
 
-    const summary = normalizeFinalMessage(await fs.readFile(outputPath, 'utf8'));
+    const finalMessage = await readBoundedFile(
+      outputPath,
+      this.options.finalMessageLimitBytes ??
+        DEFAULT_FINAL_MESSAGE_LIMIT_BYTES,
+    );
+    if (finalMessage.overflow) {
+      return {
+        success: false,
+        error: {
+          category: 'PROCESS',
+          retryable: true,
+          message: 'Codex output exceeded the capture limit.',
+        },
+      };
+    }
+
+    const summary = normalizeFinalMessage(finalMessage.output);
     if (!summary) {
       return {
         success: false,

@@ -3,6 +3,11 @@ import fs from 'node:fs';
 const args = process.argv.slice(2);
 const mode = process.env.FAKE_CODEX_MODE ?? 'ready';
 const protocolPath = process.env.FAKE_CODEX_PROTOCOL_PATH;
+const pidPath = process.env.FAKE_CODEX_PID_PATH;
+
+if (pidPath) {
+  fs.writeFileSync(pidPath, String(process.pid));
+}
 
 let stdin = '';
 for await (const chunk of process.stdin) {
@@ -35,7 +40,16 @@ if (args[0] === '--version') {
     process.exitCode = 1;
   } else {
     const outputIndex = args.indexOf('--output-last-message');
-    if (mode === 'summary-success') {
+    if (mode === 'stdout-overflow') {
+      process.stdout.write('x'.repeat(64));
+      setInterval(() => {}, 1_000);
+    } else if (mode === 'stderr-overflow') {
+      process.stderr.write('x'.repeat(64));
+      setInterval(() => {}, 1_000);
+    } else if (mode === 'file-overflow') {
+      fs.writeFileSync(args[outputIndex + 1], 'x'.repeat(64));
+      setInterval(() => {}, 1_000);
+    } else if (mode === 'summary-success') {
       process.stdout.write('STDOUT IS NOT THE SUMMARY');
       process.stderr.write('STDERR IS NOT THE SUMMARY');
       fs.writeFileSync(
