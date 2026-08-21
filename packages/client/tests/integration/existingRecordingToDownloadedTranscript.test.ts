@@ -76,6 +76,14 @@ interface ProcessingFailureOutcome {
 
 type TransferFault = 'write' | 'read' | 'mismatch' | 'rename' | 'interrupted';
 
+const TRANSFER_FAILURE_REASONS: Record<TransferFault, string> = {
+  write: 'write failed',
+  read: 'verification read failed',
+  mismatch: 'Transcript verification mismatch',
+  rename: 'rename failed',
+  interrupted: 'socket hang up',
+};
+
 type RedactionSource = JobRecord & {
   transcriptText: string;
   summaryText: string;
@@ -231,11 +239,9 @@ describe('Existing Recording to downloaded Transcript', () => {
       });
       expect(outcome.finalTranscript).toBe('prior Transcript sentinel');
       expect(outcome.temporaryFiles).toEqual([]);
-      expect(outcome.diagnostic).toMatch(
-        new RegExp(
-          `^Transcript download failed for ${outcome.clientJobs[0].id}; ` +
-          'retry on next Manual Sync: .+',
-        ),
+      expect(outcome.diagnostic).toBe(
+        `Transcript download failed for ${outcome.clientJobs[0].id}; ` +
+        `retry on next Manual Sync: ${TRANSFER_FAILURE_REASONS[outcome.fault]}`,
       );
     }
   }, 30_000);
