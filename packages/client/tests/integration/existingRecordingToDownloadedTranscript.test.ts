@@ -58,6 +58,16 @@ interface RejectionOutcome {
   notebookTranscripts: string[];
 }
 
+interface ProcessingFailureOutcome {
+  expectedStep: JobStep;
+  status: JobResponse;
+  artifactRoot: string;
+  clientJobs: ClientJob[];
+  serverJobs: JobRecord[];
+  creationRequests: number;
+  notebookTranscripts: string[];
+}
+
 describe('Existing Recording to downloaded Transcript', () => {
   it('moves one persisted Recording through ordered server states to one atomic local Transcript', async () => {
     const outcome = await runIntegratedSuccessJourney();
@@ -141,6 +151,33 @@ describe('Existing Recording to downloaded Transcript', () => {
     expect(outcome.serverJobs).toEqual([]);
     expect(outcome.queuePushes).toBe(0);
     expect(outcome.notebookTranscripts).toEqual([]);
+  });
+
+  it('preserves extraction and transcription failure attribution without partial Transcripts', async () => {
+    const outcomes = await runProcessingFailureJourneys();
+
+    expect(outcomes.map(({ expectedStep }) => expectedStep)).toEqual([
+      JobStep.EXTRACTING_AUDIO,
+      JobStep.TRANSCRIBING,
+    ]);
+    for (const outcome of outcomes) {
+      expect(outcome.creationRequests).toBe(1);
+      expect(outcome.clientJobs).toHaveLength(1);
+      expect(outcome.serverJobs).toHaveLength(1);
+      expect(outcome.clientJobs[0]).toMatchObject({
+        id: outcome.serverJobs[0].id,
+        clientStatus: ClientJobStatus.ABANDONED,
+        retryCount: 0,
+      });
+      expect(outcome.status).toMatchObject({
+        id: outcome.clientJobs[0].id,
+        serverStatus: 'FAILED',
+        currentStep: outcome.expectedStep,
+        failedStep: outcome.expectedStep,
+      });
+      expectRedactedStatus(outcome.status, outcome.artifactRoot);
+      expect(outcome.notebookTranscripts).toEqual([]);
+    }
   });
 });
 
@@ -461,6 +498,151 @@ async function runCreationRejectionJourney(): Promise<RejectionOutcome> {
     warning.mockRestore();
     await app.close();
     await new Promise<void>((resolve) => queue.destroy(resolve));
+    process.chdir(originalCwd);
+    await fs.rm(root, { recursive: true, force: true });
+  }
+}
+
+async function runProcessingFailureJourneys(): Promise<
+  ProcessingFailureOutcome[]
+> {
+  const outcomes: ProcessingFailureOutcome[] = [];
+  for (const failedStep of [
+    JobStep.EXTRACTING_AUDIO,
+    JobStep.TRANSCRIBING,
+  ]) {
+    outcomes.push(await runProcessingFailureJourney(failedStep));
+  }
+  return outcomes;
+}
+
+async function runProcessingFailureJourney(
+  failedStep: JobStep,
+): Promise<ProcessingFailureOutcome> {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'processing-failure-'));
+  const clientRoot = path.join(root, 'notebook');
+  const serverRoot = path.join(root, 'server');
+  const recordingPath = path.join(
+    clientRoot,
+    'recordings',
+    `failed-${failedStep.toLowerCase()}.mkv`,
+  );
+  await fs.mkdir(serverRoot, { recursive: true });
+  const clientFileSystem = new NodeFileSystem(clientRoot);
+  await clientFileSystem.writeFile(recordingPath, 'existing Recording bytes');
+
+  const originalCwd = process.cwd();
+  vi.resetModules();
+  process.chdir(serverRoot);
+  const [{ buildServer }, { jobStore }, { FileManagerService }, queueModule] =
+    await Promise.all([
+      import('../../../server/src/index'),
+      import('../../../server/src/services/db'),
+      import('../../../server/src/services/file-manager'),
+      import('../../../server/src/services/queue'),
+    ]);
+  process.chdir(originalCwd);
+
+  const artifacts = new FileManagerService(serverRoot);
+  await artifacts.ensureDirectories();
+  const queue = queueModule.createMeetingQueue({
+    jobStore,
+    artifacts,
+    audioExtractor: {
+      async convertToWav(_inputPath: string, outputPath: string) {
+        if (failedStep === JobStep.EXTRACTING_AUDIO) {
+          throw new Error('Extraction failed');
+        }
+        await fs.writeFile(outputPath, 'extracted audio');
+        return { audioPath: outputPath };
+      },
+    },
+    transcriber: {
+      async transcribe() {
+        throw new Error('Transcription failed');
+      },
+    },
+  }) as ReturnType<typeof queueModule.createMeetingQueue> & {
+    destroy(callback: () => void): void;
+  };
+  const app = buildServer({
+    apiKey: API_KEY,
+    dependencies: { artifacts, jobQueue: queue, jobStore },
+  });
+  let creationRequests = 0;
+  app.server.on('request', (request) => {
+    if (request.method === 'POST' && request.url === '/jobs') {
+      creationRequests += 1;
+    }
+  });
+  await app.listen({ host: '127.0.0.1', port: 0 });
+  const address = app.server.address();
+  if (!address || typeof address === 'string') {
+    throw new Error('Acceptance server did not expose a TCP port.');
+  }
+
+  const originalConfigGet = configService.get.bind(configService);
+  const configGet = vi.spyOn(configService, 'get').mockImplementation(
+    ((key: Parameters<typeof configService.get>[0]) => {
+      if (key === 'server') {
+        return {
+          ip: '127.0.0.1',
+          port: address.port,
+          apiKey: API_KEY,
+        };
+      }
+      return originalConfigGet(key);
+    }) as typeof configService.get,
+  );
+  const api = new ApiService();
+  const db = new LowDB(
+    clientFileSystem,
+    path.join(clientRoot, 'client-db.json'),
+  );
+  const persistedJob = await db.addRecording(recordingPath, RECORDED_AT);
+  await db.updateOptions(persistedJob.id, {
+    language: TranscriptionLanguage.ENGLISH,
+    template: AIPromptTemplate.MEETING,
+    minSpeakers: 2,
+    maxSpeakers: 5,
+  });
+  const syncManager = new SyncManager(
+    api,
+    db,
+    { saveNote: vi.fn() },
+    {
+      scanDirectory: vi.fn(async () => {}),
+      ingestFile: vi.fn(async () => {}),
+    },
+    clientFileSystem,
+  );
+  const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+  try {
+    await runSync(syncManager);
+    await waitFor(async () => {
+      const job = await jobStore.getById(persistedJob.id);
+      return job?.serverStatus === 'FAILED';
+    });
+    await runSync(syncManager);
+
+    return {
+      expectedStep: failedStep,
+      status: await api.getJobStatus(persistedJob.id),
+      artifactRoot: serverRoot,
+      clientJobs: await db.getAll(),
+      serverJobs: (await jobStore.getAll()).map((job) => structuredClone(job)),
+      creationRequests,
+      notebookTranscripts: await listFiles(
+        path.join(clientRoot, 'transcriptions'),
+      ),
+    };
+  } finally {
+    errorLog.mockRestore();
+    await app.close();
+    await new Promise<void>((resolve) => queue.destroy(resolve));
+    api.resetClient();
+    configGet.mockRestore();
     process.chdir(originalCwd);
     await fs.rm(root, { recursive: true, force: true });
   }
