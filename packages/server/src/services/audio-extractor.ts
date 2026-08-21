@@ -28,6 +28,7 @@ export class AudioExtractionService {
         .audioCodec('pcm_s16le')  // 16-bit PCM (Standard for WAV)
         .audioChannels(1)         // Mono (Whisper processes mono)
         .audioFrequency(16000)    // 16kHz (Whisper's native sample rate)
+        .format('wav')
         .output(outputPath)
         
         // 3. Event Handlers
@@ -53,6 +54,7 @@ export class AudioExtractionService {
             );
             const audio = audioStreams[0];
             const isWhisperWav =
+              metadata.format.format_name === 'wav' &&
               audioStreams.length === 1 &&
               audio?.codec_name === 'pcm_s16le' &&
               Number(audio.sample_rate) === 16000 &&

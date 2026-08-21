@@ -152,15 +152,20 @@ describe('Production server processing smoke', () => {
     const probe = await execFileAsync('ffprobe', [
       '-v', 'error',
       '-select_streams', 'a',
-      '-show_entries', 'stream=codec_name,sample_rate,channels',
+      '-show_entries', 'format=format_name:stream=codec_name,sample_rate,channels',
       '-of', 'json',
       audioPath,
     ]);
-    expect(JSON.parse(probe.stdout).streams).toEqual([{
-      codec_name: 'pcm_s16le',
-      sample_rate: '16000',
-      channels: 1,
-    }]);
+    expect(JSON.parse(probe.stdout)).toMatchObject({
+      streams: [{
+        codec_name: 'pcm_s16le',
+        sample_rate: '16000',
+        channels: 1,
+      }],
+      format: {
+        format_name: 'wav',
+      },
+    });
 
     const transcript = await app.inject({
       method: 'GET',

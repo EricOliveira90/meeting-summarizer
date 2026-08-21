@@ -10,6 +10,7 @@ const ffmpegMock = vi.hoisted(() => {
     audioCodec: vi.fn(),
     audioChannels: vi.fn(),
     audioFrequency: vi.fn(),
+    format: vi.fn(),
     output: vi.fn(),
     on: vi.fn(),
     run: vi.fn(),
@@ -20,6 +21,7 @@ const ffmpegMock = vi.hoisted(() => {
     command.audioCodec,
     command.audioChannels,
     command.audioFrequency,
+    command.format,
     command.output,
     command.on,
   ]) {
@@ -90,5 +92,28 @@ describe('AudioExtractionService', () => {
       outputPath,
       expect.any(Function),
     );
+  });
+
+  it('forces and verifies the WAV container before returning the audio path', async () => {
+    ffmpegMock.factory.ffprobe.mockImplementation(
+      (_path: string, callback: (error: Error | null, metadata: any) => void) => {
+        callback(null, {
+          format: { duration: 1, format_name: 'nut' },
+          streams: [{
+            codec_type: 'audio',
+            codec_name: 'pcm_s16le',
+            sample_rate: '16000',
+            channels: 1,
+          }],
+        });
+      },
+    );
+
+    const extraction = new AudioExtractionService();
+    await expect(extraction.convertToWav(inputPath, outputPath)).rejects.toThrow(
+      'FFmpeg output is not a 16-kHz mono signed 16-bit PCM WAV.',
+    );
+
+    expect(ffmpegMock.command.format).toHaveBeenCalledWith('wav');
   });
 });
