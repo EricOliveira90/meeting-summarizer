@@ -35,7 +35,10 @@ function createHarness(overrides: {
     text: 'hello',
     outputFilePath: transcriptPath,
   });
-  const replace = vi.fn().mockResolvedValue(undefined);
+  const persisted: JobRecord[] = [];
+  const replace = vi.fn(async (updated: JobRecord) => {
+    persisted.push(structuredClone(updated));
+  });
   const fileExists = vi.fn().mockResolvedValue(overrides.transcriptExists ?? true);
   const dependencies: ProcessingDependencies = {
     jobStore: {
@@ -57,6 +60,7 @@ function createHarness(overrides: {
     extract,
     fileExists,
     job,
+    persisted,
     transcriptPath,
     transcribe,
   };
@@ -98,6 +102,10 @@ describe('Queue Processor - Step Tracking', () => {
       JobStep.TRANSCRIBING,
       JobStep.TRANSCRIPT_READY,
     ]);
+    expect(harness.persisted).not.toContainEqual(expect.objectContaining({
+      serverStatus: 'PROCESSING',
+      currentStep: JobStep.TRANSCRIPT_READY,
+    }));
 
     const orderedSteps = [
       JobStep.QUEUED,

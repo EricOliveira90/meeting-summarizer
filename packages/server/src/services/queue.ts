@@ -119,12 +119,18 @@ export async function processMeetingJob(
     await updateJobData(dependencies, jobId, { transcriptPath });
     await completeStep(dependencies, jobId, JobStep.TRANSCRIBING);
 
-    await startStep(dependencies, jobId, JobStep.TRANSCRIPT_READY);
-    await completeStep(dependencies, jobId, JobStep.TRANSCRIPT_READY);
-    await updateJobData(dependencies, jobId, {
-      serverStatus: 'COMPLETED',
-      currentStep: JobStep.TRANSCRIPT_READY,
-      recoveryAttempts: 0,
+    await updateJob(dependencies, jobId, (job) => {
+      const completedAt = new Date().toISOString();
+      job.steps = {
+        ...job.steps,
+        [JobStep.TRANSCRIPT_READY]: {
+          startedAt: completedAt,
+          completedAt,
+        },
+      };
+      job.serverStatus = 'COMPLETED';
+      job.currentStep = JobStep.TRANSCRIPT_READY;
+      job.recoveryAttempts = 0;
     });
   } catch (error: any) {
     console.error(`❌ [Job ${jobId}] Failed:`, error.message);
