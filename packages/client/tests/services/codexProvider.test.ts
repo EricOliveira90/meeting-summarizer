@@ -159,4 +159,81 @@ describe('CodexProvider', () => {
     const pid = Number(fs.readFileSync(pidPath, 'utf8'));
     expect(() => process.kill(pid, 0)).toThrow();
   });
+
+  it.each([
+    { outcome: 'success', mode: 'summary-success' },
+    { outcome: 'malformed output', mode: 'empty-output' },
+    { outcome: 'nonzero exit', mode: 'process-failure' },
+    { outcome: 'stdout overflow', mode: 'stdout-overflow', limit: 8 },
+    { outcome: 'stderr overflow', mode: 'stderr-overflow', limit: 8 },
+    { outcome: 'file overflow', mode: 'file-overflow', limit: 8 },
+    { outcome: 'timeout', mode: 'hang', timeoutMs: 20 },
+  ])('removes the final-message file after $outcome', async ({
+    mode,
+    limit,
+    timeoutMs,
+  }) => {
+    const provider = new CodexProvider({
+      model: MODEL_CANARY,
+      executablePath: process.execPath,
+      executableArgs: [fakeCodexPath],
+      environment: {
+        ...process.env,
+        FAKE_CODEX_MODE: mode,
+        FAKE_CODEX_PROTOCOL_PATH: protocolPath,
+      },
+      tempDirectory: tempDir,
+      timeoutMs,
+      stdoutLimitBytes: limit,
+      stderrLimitBytes: limit,
+      finalMessageLimitBytes: limit,
+    });
+
+    await provider.summarize({
+      transcript: TRANSCRIPT_CANARY,
+      template: AIPromptTemplate.MEETING,
+    });
+
+    expect(
+      fs.readdirSync(tempDir).filter((name) =>
+        name.startsWith('meeting-summarizer-codex-'),
+      ),
+    ).toEqual([]);
+  });
+
+  it('removes the final-message file after cancellation and spawn failure', async () => {
+    const controller = new AbortController();
+    const cancelled = createProvider('hang').summarize(
+      {
+        transcript: TRANSCRIPT_CANARY,
+        template: AIPromptTemplate.MEETING,
+      },
+      controller.signal,
+    );
+    await vi.waitFor(() => {
+      expect(
+        fs.readdirSync(tempDir).some((name) =>
+          name.startsWith('meeting-summarizer-codex-'),
+        ),
+      ).toBe(true);
+    });
+    controller.abort();
+    await cancelled;
+
+    const missingExecutable = new CodexProvider({
+      model: MODEL_CANARY,
+      executablePath: path.join(tempDir, 'missing-codex'),
+      tempDirectory: tempDir,
+    });
+    await missingExecutable.summarize({
+      transcript: TRANSCRIPT_CANARY,
+      template: AIPromptTemplate.MEETING,
+    });
+
+    expect(
+      fs.readdirSync(tempDir).filter((name) =>
+        name.startsWith('meeting-summarizer-codex-'),
+      ),
+    ).toEqual([]);
+  });
 });

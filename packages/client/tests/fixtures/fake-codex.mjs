@@ -49,6 +49,12 @@ if (args[0] === '--version') {
     } else if (mode === 'file-overflow') {
       fs.writeFileSync(args[outputIndex + 1], 'x'.repeat(64));
       setInterval(() => {}, 1_000);
+    } else if (mode === 'hang') {
+      fs.writeFileSync(args[outputIndex + 1], 'SENSITIVE TEMP CONTENT');
+      setInterval(() => {}, 1_000);
+    } else if (mode === 'process-failure') {
+      fs.writeFileSync(args[outputIndex + 1], 'SENSITIVE TEMP CONTENT');
+      process.exitCode = 23;
     } else if (mode === 'summary-success') {
       process.stdout.write('STDOUT IS NOT THE SUMMARY');
       process.stderr.write('STDERR IS NOT THE SUMMARY');

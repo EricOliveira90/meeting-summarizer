@@ -319,64 +319,68 @@ export class CodexProvider implements SummaryProvider {
     );
     const prompt =
       `${SUMMARY_PROMPTS[input.template]}\n\nTranscript:\n${input.transcript}`;
-    const result = await runProcess(
-      codexExecArgs(this.model, outputPath),
-      this.options,
-      prompt,
-      signal,
-      outputPath,
-    );
+    try {
+      const result = await runProcess(
+        codexExecArgs(this.model, outputPath),
+        this.options,
+        prompt,
+        signal,
+        outputPath,
+      );
 
-    if (result.outputOverflow) {
-      return {
-        success: false,
-        error: {
-          category: 'PROCESS',
-          retryable: true,
-          message: 'Codex output exceeded the capture limit.',
-        },
-      };
+      if (result.outputOverflow) {
+        return {
+          success: false,
+          error: {
+            category: 'PROCESS',
+            retryable: true,
+            message: 'Codex output exceeded the capture limit.',
+          },
+        };
+      }
+
+      if (result.exitCode !== 0) {
+        return {
+          success: false,
+          error: {
+            category: 'PROCESS',
+            retryable: true,
+            message: `Codex failed (exit ${result.exitCode ?? 'unknown'}).`,
+          },
+        };
+      }
+
+      const finalMessage = await readBoundedFile(
+        outputPath,
+        this.options.finalMessageLimitBytes ??
+          DEFAULT_FINAL_MESSAGE_LIMIT_BYTES,
+      );
+      if (finalMessage.overflow) {
+        return {
+          success: false,
+          error: {
+            category: 'PROCESS',
+            retryable: true,
+            message: 'Codex output exceeded the capture limit.',
+          },
+        };
+      }
+
+      const summary = normalizeFinalMessage(finalMessage.output);
+      if (!summary) {
+        return {
+          success: false,
+          error: {
+            category: 'MALFORMED_OUTPUT',
+            retryable: true,
+            message: 'Codex returned no Summary.',
+          },
+        };
+      }
+
+      return { success: true, summary };
+    } finally {
+      await fs.rm(outputPath, { force: true });
     }
-
-    if (result.exitCode !== 0) {
-      return {
-        success: false,
-        error: {
-          category: 'PROCESS',
-          retryable: true,
-          message: `Codex failed (exit ${result.exitCode ?? 'unknown'}).`,
-        },
-      };
-    }
-
-    const finalMessage = await readBoundedFile(
-      outputPath,
-      this.options.finalMessageLimitBytes ??
-        DEFAULT_FINAL_MESSAGE_LIMIT_BYTES,
-    );
-    if (finalMessage.overflow) {
-      return {
-        success: false,
-        error: {
-          category: 'PROCESS',
-          retryable: true,
-          message: 'Codex output exceeded the capture limit.',
-        },
-      };
-    }
-
-    const summary = normalizeFinalMessage(finalMessage.output);
-    if (!summary) {
-      return {
-        success: false,
-        error: {
-          category: 'MALFORMED_OUTPUT',
-          retryable: true,
-          message: 'Codex returned no Summary.',
-        },
-      };
-    }
-
-    return { success: true, summary };
   }
 }
