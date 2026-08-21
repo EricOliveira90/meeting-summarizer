@@ -75,8 +75,12 @@ export class ApiService implements IApiService {
           'x-recorded-at': new Date(recordedAt).toISOString(),
           'x-language': options.language,
           'x-template': options.template,
-          'x-min-speakers': options.minSpeakers?.toString() || '',
-          'x-max-speakers': options.maxSpeakers?.toString() || '',
+          ...(options.minSpeakers === undefined
+            ? {}
+            : { 'x-min-speakers': options.minSpeakers.toString() }),
+          ...(options.maxSpeakers === undefined
+            ? {}
+            : { 'x-max-speakers': options.maxSpeakers.toString() }),
           'x-api-key': apiKey
         },
         maxContentLength: Infinity,

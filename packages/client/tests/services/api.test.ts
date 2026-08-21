@@ -106,6 +106,41 @@ describe('ApiService', () => {
       });
     });
 
+    it.each([
+      {
+        options: { ...mockOptions, minSpeakers: undefined },
+        presentHeader: 'x-max-speakers',
+        presentValue: '5',
+        absentHeader: 'x-min-speakers'
+      },
+      {
+        options: { ...mockOptions, maxSpeakers: undefined },
+        presentHeader: 'x-min-speakers',
+        presentValue: '2',
+        absentHeader: 'x-max-speakers'
+      }
+    ])('omits only the undefined speaker bound', async ({
+      options,
+      presentHeader,
+      presentValue,
+      absentHeader
+    }) => {
+      mockAxiosInstance.post.mockResolvedValueOnce({
+        data: { success: true, jobId: id, message: 'Uploaded' }
+      });
+
+      await api.uploadMeeting(
+        'fake-path.mkv',
+        id,
+        '2026-08-20T09:30:00-03:00',
+        options
+      );
+
+      const headers = mockAxiosInstance.post.mock.calls[0][2].headers;
+      expect(headers[presentHeader]).toBe(presentValue);
+      expect(headers).not.toHaveProperty(absentHeader);
+    });
+
     it('triggers the onProgress callback during upload', async () => {
       // Simulate the onUploadProgress callback behavior inside Axios
       mockAxiosInstance.post.mockImplementationOnce(async (url: string, data: any, config: any) => {
