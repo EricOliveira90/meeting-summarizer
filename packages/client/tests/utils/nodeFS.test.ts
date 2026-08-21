@@ -68,6 +68,17 @@ describe('NodeFileSystem', () => {
         });
     });
 
+    describe('deleteFile', () => {
+        it('should remove temporary data idempotently', async () => {
+            const temporaryPath = '/var/app/data/transcriptions/meeting.txt.job-123.tmp';
+
+            await fileSystem.deleteFile(temporaryPath);
+
+            expect(fsPromises.rm).toHaveBeenCalledWith(temporaryPath, { force: true });
+            expect(fsPromises.rm).toHaveBeenCalledTimes(1);
+        });
+    });
+
     describe('joinPathsInProjectFolder', () => {
         it('should prepend the baseDir and resolve OS-specific separators correctly', () => {
             // Note: We don't mock 'path' because it is a pure function (no I/O side effects).

@@ -26,6 +26,10 @@ export class NodeFileSystem implements IFileManager {
         await fsPromises.rename(sourcePath, destinationPath);
     }
 
+    public async deleteFile(filePath: string): Promise<void> {
+        await fsPromises.rm(filePath, { force: true });
+    }
+
     public joinPathsInProjectFolder(...parts: string[]): string {
         // Leverages Node's native path.join to handle OS-specific slashes (\ vs /) perfectly
         return path.join(this.baseDir, ...parts);
