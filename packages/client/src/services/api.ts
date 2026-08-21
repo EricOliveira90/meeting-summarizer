@@ -6,6 +6,7 @@ import { configService } from './config';
 import {
   UploadOptions,
   Job,
+  JobResponse,
   UploadResponse,
   ErrorResponse
 } from '@meeting-summarizer/shared';
@@ -100,9 +101,21 @@ export class ApiService implements IApiService {
     }
   }
 
-  public async getJobStatus(jobId: string): Promise<Job> {
+  public async getJobStatus(jobId: string): Promise<JobResponse> {
     try {
-      const response = await this.client.get<Job>(`/jobs/${jobId}`);
+      const response = await this.client.get<JobResponse>(`/jobs/${jobId}`);
+      return response.data;
+    } catch (error) {
+      throw this.formatError(error);
+    }
+  }
+
+  public async getTranscript(jobId: string): Promise<string> {
+    try {
+      const response = await this.client.get<string>(
+        `/jobs/${jobId}/transcript`,
+        { responseType: 'text' }
+      );
       return response.data;
     } catch (error) {
       throw this.formatError(error);

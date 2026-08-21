@@ -177,6 +177,25 @@ describe('ApiService', () => {
     });
   });
 
+  describe('getTranscript()', () => {
+    it('retrieves plain Transcript text through the authenticated client', async () => {
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: 'Speaker 1: Exact Transcript'
+      });
+
+      const transcript = await api.getTranscript('job-123');
+
+      expect(transcript).toBe('Speaker 1: Exact Transcript');
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith(
+        '/jobs/job-123/transcript',
+        { responseType: 'text' }
+      );
+      expect(axios.create).toHaveBeenCalledWith(expect.objectContaining({
+        headers: { 'x-api-key': 'test-key' }
+      }));
+    });
+  });
+
   describe('Error Formatting (SyncError)', () => {
     it('preserves the exact JOB_NOT_FOUND response code', async () => {
       const axiosError = {

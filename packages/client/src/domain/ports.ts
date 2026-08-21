@@ -48,6 +48,11 @@ export interface IApiService {
   getJobStatus(jobId: string): Promise<JobResponse>;
 
   /**
+   * Fetches the ready Transcript as a plain-text artifact.
+   */
+  getTranscript(jobId: string): Promise<string>;
+
+  /**
    * Fetches all jobs currently known to the server.
    */
   getJobs(): Promise<Job[]>;
