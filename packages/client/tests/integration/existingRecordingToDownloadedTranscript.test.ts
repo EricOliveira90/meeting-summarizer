@@ -48,6 +48,16 @@ interface SuccessOutcome {
   noteCalls: number;
 }
 
+interface RejectionOutcome {
+  responses: Array<{
+    status: number;
+    body: { code: string; error: string };
+  }>;
+  serverJobs: JobRecord[];
+  queuePushes: number;
+  notebookTranscripts: string[];
+}
+
 describe('Existing Recording to downloaded Transcript', () => {
   it('moves one persisted Recording through ordered server states to one atomic local Transcript', async () => {
     const outcome = await runIntegratedSuccessJourney();
@@ -100,6 +110,37 @@ describe('Existing Recording to downloaded Transcript', () => {
     expect(outcome.summaryArtifacts).toEqual([]);
     expect(outcome.publicationArtifacts).toEqual([]);
     expect(outcome.noteCalls).toBe(0);
+  });
+
+  it('rejects missing auth, wrong auth, and invalid language without creating a Job', async () => {
+    const outcome = await runCreationRejectionJourney();
+
+    expect(outcome.responses).toEqual([
+      {
+        status: 401,
+        body: {
+          code: 'AUTH_REQUIRED',
+          error: 'API credential is required.',
+        },
+      },
+      {
+        status: 401,
+        body: {
+          code: 'AUTH_INVALID',
+          error: 'API credential is invalid.',
+        },
+      },
+      {
+        status: 400,
+        body: {
+          code: 'INVALID_LANGUAGE',
+          error: 'x-language must be one of: auto, en, pt, es.',
+        },
+      },
+    ]);
+    expect(outcome.serverJobs).toEqual([]);
+    expect(outcome.queuePushes).toBe(0);
+    expect(outcome.notebookTranscripts).toEqual([]);
   });
 });
 
@@ -162,6 +203,7 @@ async function runIntegratedSuccessJourney(): Promise<SuccessOutcome> {
   await clientFileSystem.writeFile(recordingPath, 'existing Recording bytes');
 
   const originalCwd = process.cwd();
+  vi.resetModules();
   process.chdir(serverRoot);
   const [{ buildServer }, { jobStore }, { FileManagerService }, queueModule] =
     await Promise.all([
@@ -318,6 +360,107 @@ async function runIntegratedSuccessJourney(): Promise<SuccessOutcome> {
     await new Promise<void>((resolve) => queue.destroy(resolve));
     api.resetClient();
     configGet.mockRestore();
+    process.chdir(originalCwd);
+    await fs.rm(root, { recursive: true, force: true });
+  }
+}
+
+async function runCreationRejectionJourney(): Promise<RejectionOutcome> {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'creation-rejection-'));
+  const clientRoot = path.join(root, 'notebook');
+  const serverRoot = path.join(root, 'server');
+  await fs.mkdir(serverRoot, { recursive: true });
+
+  const originalCwd = process.cwd();
+  vi.resetModules();
+  process.chdir(serverRoot);
+  const [{ buildServer }, { jobStore }, { FileManagerService }, queueModule] =
+    await Promise.all([
+      import('../../../server/src/index'),
+      import('../../../server/src/services/db'),
+      import('../../../server/src/services/file-manager'),
+      import('../../../server/src/services/queue'),
+    ]);
+  process.chdir(originalCwd);
+
+  const artifacts = new FileManagerService(serverRoot);
+  await artifacts.ensureDirectories();
+  const queue = queueModule.createMeetingQueue({
+    jobStore,
+    artifacts,
+    audioExtractor: {
+      convertToWav: vi.fn(async () => {
+        throw new Error('Rejected creation reached extraction.');
+      }),
+    },
+    transcriber: {
+      transcribe: vi.fn(async () => {
+        throw new Error('Rejected creation reached transcription.');
+      }),
+    },
+  }) as ReturnType<typeof queueModule.createMeetingQueue> & {
+    destroy(callback: () => void): void;
+  };
+  const queuePush = vi.spyOn(queue, 'push');
+  const app = buildServer({
+    apiKey: API_KEY,
+    dependencies: { artifacts, jobQueue: queue, jobStore },
+  });
+  await app.listen({ host: '127.0.0.1', port: 0 });
+  const address = app.server.address();
+  if (!address || typeof address === 'string') {
+    throw new Error('Acceptance server did not expose a TCP port.');
+  }
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+  const request = async (
+    apiKey: string | undefined,
+    language: string,
+  ): Promise<RejectionOutcome['responses'][number]> => {
+    const form = new FormData();
+    form.append(
+      'file',
+      new Blob(['existing Recording bytes'], { type: 'video/x-matroska' }),
+      'existing-recording.mkv',
+    );
+    const headers: Record<string, string> = {
+      'x-job-id': `rejected-${language}-${apiKey ?? 'missing'}`,
+      'x-recorded-at': RECORDED_AT,
+      'x-language': language,
+      'x-template': AIPromptTemplate.MEETING,
+    };
+    if (apiKey !== undefined) headers['x-api-key'] = apiKey;
+
+    const response = await fetch(`${baseUrl}/jobs`, {
+      method: 'POST',
+      headers,
+      body: form,
+    });
+    return {
+      status: response.status,
+      body: await response.json() as RejectionOutcome['responses'][number]['body'],
+    };
+  };
+
+  try {
+    const responses = [
+      await request(undefined, TranscriptionLanguage.ENGLISH),
+      await request('wrong-api-key-sentinel', TranscriptionLanguage.ENGLISH),
+      await request(API_KEY, 'fr'),
+    ];
+    return {
+      responses,
+      serverJobs: await jobStore.getAll(),
+      queuePushes: queuePush.mock.calls.length,
+      notebookTranscripts: await listFiles(
+        path.join(clientRoot, 'transcriptions'),
+      ),
+    };
+  } finally {
+    warning.mockRestore();
+    await app.close();
+    await new Promise<void>((resolve) => queue.destroy(resolve));
     process.chdir(originalCwd);
     await fs.rm(root, { recursive: true, force: true });
   }
