@@ -121,7 +121,14 @@ export class SyncManager {
             const isAbsent = error instanceof SyncError
                 && error.statusCode === 404
                 && error.code === 'JOB_NOT_FOUND';
-            if (!isAbsent) return;
+            if (!isAbsent) {
+                const isFatal = error instanceof SyncError && !error.isTransient;
+                const message = error instanceof Error
+                    ? error.message
+                    : 'Job lookup failed';
+                await this.db.setError(job.id, message, isFatal);
+                return;
+            }
         }
 
         let options = job.options

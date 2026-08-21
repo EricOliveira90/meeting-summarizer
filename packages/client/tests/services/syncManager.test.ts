@@ -96,6 +96,75 @@ describe('SyncManager', () => {
   describe('pushJob() - Single Job Upload Logic', () => {
     it.each([
       {
+        lookupError: new SyncError('Tunnel unavailable', true),
+        expectedStatus: ClientJobStatus.FAILED,
+        expectedRetryCount: 2,
+        expectedFatal: false
+      },
+      {
+        lookupError: new SyncError('Server unavailable', true, 500, 'INTERNAL_ERROR'),
+        expectedStatus: ClientJobStatus.FAILED,
+        expectedRetryCount: 2,
+        expectedFatal: false
+      },
+      {
+        lookupError: new SyncError('Invalid API Key', false, 401, 'AUTH_INVALID'),
+        expectedStatus: ClientJobStatus.ABANDONED,
+        expectedRetryCount: 1,
+        expectedFatal: true
+      },
+      {
+        lookupError: new SyncError('Unexpected missing response', false, 404, 'OTHER_NOT_FOUND'),
+        expectedStatus: ClientJobStatus.ABANDONED,
+        expectedRetryCount: 1,
+        expectedFatal: true
+      }
+    ])('maps lookup failure $lookupError.message without creating', async ({
+      lookupError,
+      expectedStatus,
+      expectedRetryCount,
+      expectedFatal
+    }) => {
+      const fakeJob = {
+        id: 'job-123',
+        filePath: 'C:/recordings/meeting.wav',
+        originalFilename: 'meeting.wav',
+        recordedAt: '2026-08-20T09:30:00-03:00',
+        clientStatus: ClientJobStatus.FAILED,
+        retryCount: 1,
+        options: {
+          language: TranscriptionLanguage.ENGLISH,
+          template: AIPromptTemplate.MEETING
+        }
+      } as any;
+      mockApi.getJobStatus.mockRejectedValueOnce(lookupError);
+      mockDb.setError.mockImplementation(async (_id: string, message: string, isFatal: boolean) => {
+        fakeJob.error = message;
+        if (isFatal) {
+          fakeJob.clientStatus = ClientJobStatus.ABANDONED;
+        } else {
+          fakeJob.clientStatus = ClientJobStatus.FAILED;
+          fakeJob.retryCount += 1;
+        }
+      });
+
+      await syncManager.pushJob(fakeJob);
+
+      expect(mockApi.uploadMeeting).not.toHaveBeenCalled();
+      expect(mockDb.setError).toHaveBeenCalledWith(
+        'job-123',
+        lookupError.message,
+        expectedFatal
+      );
+      expect(fakeJob).toMatchObject({
+        clientStatus: expectedStatus,
+        retryCount: expectedRetryCount,
+        error: lookupError.message
+      });
+    });
+
+    it.each([
+      {
         serverJob: { serverStatus: 'PENDING', currentStep: JobStep.QUEUED },
         expectedStatus: ClientJobStatus.PROCESSING
       },
