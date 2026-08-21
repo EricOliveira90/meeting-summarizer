@@ -104,7 +104,7 @@ describe('Startup Recovery — 3-Strike Escalation', () => {
       filePath: '/uploads/test.mkv',
       serverStatus: 'COMPLETED',
       recordedAt: new Date().toISOString(),
-      currentStep: JobStep.DONE,
+      currentStep: JobStep.TRANSCRIPT_READY,
       recoveryAttempts: 0,
     });
 

@@ -48,28 +48,25 @@ describe('Queue Processor — Step Tracking', () => {
     expect(steps[JobStep.QUEUED]!.completedAt).toBeDefined();
   });
 
-  it('updates currentStep through each processing phase on success', async () => {
+  it('completes the server operation when the Transcript is ready without running a Summary step', async () => {
     const job = makeJob();
     mockDb.data.jobs = [job];
 
     mockConvertToWav.mockResolvedValue({ audioPath: '/audio/test.wav' });
     mockTranscribe.mockResolvedValue({ text: 'hello', outputFilePath: '/trans/test.txt' });
-    mockSummarize.mockResolvedValue({ text: 'summary', summaryPath: '/sum/test.txt' });
 
     await processMeetingJob({ jobId: 'test-job', filePath: '/uploads/test.mkv' });
 
-    // After successful processing, job should be COMPLETED with DONE step
     const updatedJob = mockDb.data.jobs[0];
     expect(updatedJob.serverStatus).toBe('COMPLETED');
-    expect(updatedJob.currentStep).toBe(JobStep.DONE);
+    expect(updatedJob.currentStep).toBe(JobStep.TRANSCRIPT_READY);
     expect(updatedJob.steps![JobStep.EXTRACTING_AUDIO]?.startedAt).toBeDefined();
     expect(updatedJob.steps![JobStep.EXTRACTING_AUDIO]?.completedAt).toBeDefined();
     expect(updatedJob.steps![JobStep.TRANSCRIBING]?.startedAt).toBeDefined();
     expect(updatedJob.steps![JobStep.TRANSCRIBING]?.completedAt).toBeDefined();
-    expect(updatedJob.steps![JobStep.SUMMARIZING]?.startedAt).toBeDefined();
-    expect(updatedJob.steps![JobStep.SUMMARIZING]?.completedAt).toBeDefined();
-    expect(updatedJob.steps![JobStep.DONE]?.startedAt).toBeDefined();
-    expect(updatedJob.steps![JobStep.DONE]?.completedAt).toBeDefined();
+    expect(updatedJob.steps![JobStep.TRANSCRIPT_READY]?.startedAt).toBeDefined();
+    expect(updatedJob.steps![JobStep.TRANSCRIPT_READY]?.completedAt).toBeDefined();
+    expect(mockSummarize).not.toHaveBeenCalled();
   });
 
   it('sets failedStep when processing fails at a specific step', async () => {
@@ -95,8 +92,6 @@ describe('Queue Processor — Step Tracking', () => {
 
     mockConvertToWav.mockResolvedValue({ audioPath: '/audio/test.wav' });
     mockTranscribe.mockResolvedValue({ text: 'hello', outputFilePath: '/trans/test.txt' });
-    mockSummarize.mockResolvedValue({ text: 'summary', summaryPath: '/sum/test.txt' });
-
     await processMeetingJob({ jobId: 'test-job', filePath: '/uploads/test.mkv' });
 
     expect(mockDb.data.jobs[0].recoveryAttempts).toBe(0);

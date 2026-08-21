@@ -3,8 +3,7 @@ import { JobStep, StepTimestamp } from '@meeting-summarizer/shared';
 import {
   audioExtractionService,
   getDb,
-  transcriptionService,
-  summaryService
+  transcriptionService
 } from '.';
 import { JobRecord } from '../domain/models';
 
@@ -68,7 +67,6 @@ export async function processMeetingJob(input: QueueInput): Promise<void> {
   if (!jobRecord) throw new Error(`Job ${jobId} not found`);
 
   const language = jobRecord.options?.language || 'auto';
-  const template = jobRecord.options?.template || 'meeting';
   const minSpeakers = jobRecord.options?.minSpeakers;
   const maxSpeakers = jobRecord.options?.maxSpeakers;
 
@@ -92,19 +90,12 @@ export async function processMeetingJob(input: QueueInput): Promise<void> {
     await updateJobData(jobId, { transcriptPath: transResult.outputFilePath });
     await completeStep(jobId, JobStep.TRANSCRIBING);
 
-    // --- STEP 3: SUMMARIZE ---
-    await startStep(jobId, JobStep.SUMMARIZING);
-
-    const sumResult = await summaryService.summarize(transResult.text, jobId, template);
-    await updateJobData(jobId, { summaryPath: sumResult.summaryPath });
-    await completeStep(jobId, JobStep.SUMMARIZING);
-
-    // --- STEP 4: DONE ---
-    await startStep(jobId, JobStep.DONE);
-    await completeStep(jobId, JobStep.DONE);
+    // --- STEP 3: TRANSCRIPT READY ---
+    await startStep(jobId, JobStep.TRANSCRIPT_READY);
+    await completeStep(jobId, JobStep.TRANSCRIPT_READY);
     await updateJobData(jobId, {
       serverStatus: 'COMPLETED',
-      currentStep: JobStep.DONE,
+      currentStep: JobStep.TRANSCRIPT_READY,
       recoveryAttempts: 0,
     });
 

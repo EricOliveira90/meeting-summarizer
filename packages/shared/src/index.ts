@@ -4,8 +4,7 @@ export enum JobStep {
   QUEUED = 'QUEUED',
   EXTRACTING_AUDIO = 'EXTRACTING_AUDIO',
   TRANSCRIBING = 'TRANSCRIBING',
-  SUMMARIZING = 'SUMMARIZING',
-  DONE = 'DONE'
+  TRANSCRIPT_READY = 'TRANSCRIPT_READY'
 }
 
 export enum TranscriptionLanguage {

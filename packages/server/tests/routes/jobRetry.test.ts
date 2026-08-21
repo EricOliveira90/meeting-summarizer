@@ -89,7 +89,7 @@ describe('POST /jobs/:id/retry — Job Retry API', () => {
       filePath: '/uploads/test.mkv',
       serverStatus: 'COMPLETED',
       recordedAt: new Date().toISOString(),
-      currentStep: JobStep.DONE,
+      currentStep: JobStep.TRANSCRIPT_READY,
     });
 
     const response = await app.inject({ method: 'POST', url: '/jobs/job-ok/retry', headers: { 'x-api-key': apiKey } });

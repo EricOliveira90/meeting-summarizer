@@ -531,8 +531,7 @@ describe('Job status contract', () => {
       ['pending', 'PENDING', JobStep.QUEUED],
       ['extracting', 'PROCESSING', JobStep.EXTRACTING_AUDIO],
       ['transcribing', 'PROCESSING', JobStep.TRANSCRIBING],
-      ['summarizing', 'PROCESSING', JobStep.SUMMARIZING],
-      ['done', 'COMPLETED', JobStep.DONE],
+      ['transcript-ready', 'COMPLETED', JobStep.TRANSCRIPT_READY],
     ] as const;
 
     for (const [id, serverStatus, currentStep] of statePairs) {
@@ -587,7 +586,7 @@ describe('Job status contract', () => {
 
     expect(list.statusCode).toBe(200);
     expect(list.json()).toMatchObject({
-      total: 6,
+      total: 5,
       page: 1,
       limit: 20,
       jobs: [
@@ -676,7 +675,7 @@ describe('Transcript download contract', () => {
       id: 'ready',
       job: {
         serverStatus: 'COMPLETED',
-        currentStep: JobStep.DONE,
+        currentStep: JobStep.TRANSCRIPT_READY,
       },
       transcript: 'Speaker 1: Ready transcript',
       expectedStatus: 200,
@@ -686,7 +685,7 @@ describe('Transcript download contract', () => {
       id: 'null-artifact',
       job: {
         serverStatus: 'COMPLETED',
-        currentStep: JobStep.DONE,
+        currentStep: JobStep.TRANSCRIPT_READY,
       },
       transcript: null,
       expectedStatus: 409,
@@ -700,7 +699,7 @@ describe('Transcript download contract', () => {
       id: 'rejected-read',
       job: {
         serverStatus: 'COMPLETED',
-        currentStep: JobStep.DONE,
+        currentStep: JobStep.TRANSCRIPT_READY,
       },
       transcriptError: new Error('artifact unavailable'),
       expectedStatus: 409,

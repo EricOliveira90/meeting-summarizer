@@ -98,7 +98,7 @@ export async function jobRoutes(server: FastifyInstance) {
       });
     }
 
-    if (job.serverStatus !== 'COMPLETED' || job.currentStep !== JobStep.DONE) {
+    if (job.serverStatus !== 'COMPLETED' || job.currentStep !== JobStep.TRANSCRIPT_READY) {
       return reply.status(409).send({
         code: 'TRANSCRIPT_NOT_READY',
         error: 'Transcript is not ready.',

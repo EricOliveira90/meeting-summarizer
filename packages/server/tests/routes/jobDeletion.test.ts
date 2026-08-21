@@ -62,7 +62,7 @@ function makeJob(id: string, status: JobRecord['serverStatus']): JobRecord {
     filePath: `/uploads/${id}.mkv`,
     serverStatus: status,
     recordedAt: new Date().toISOString(),
-    currentStep: status === 'COMPLETED' ? JobStep.DONE : JobStep.QUEUED,
+    currentStep: status === 'COMPLETED' ? JobStep.TRANSCRIPT_READY : JobStep.QUEUED,
   };
 }
 
