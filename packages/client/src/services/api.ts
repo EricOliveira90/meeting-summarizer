@@ -54,6 +54,7 @@ export class ApiService implements IApiService {
   public async uploadMeeting(
     filePath: string,
     id: string,
+    recordedAt: string,
     options: UploadOptions,
     onProgress?: (percentCompleted: number) => void
   ): Promise<UploadResponse> {
@@ -67,10 +68,11 @@ export class ApiService implements IApiService {
     form.append('file', fs.createReadStream(filePath));
 
     try {
-      const response = await this.client.post<UploadResponse>('/upload', form, {
+      const response = await this.client.post<UploadResponse>('/jobs', form, {
         headers: {
           ...form.getHeaders(),
           'x-job-id': id,
+          'x-recorded-at': new Date(recordedAt).toISOString(),
           'x-language': options.language,
           'x-template': options.template,
           'x-min-speakers': options.minSpeakers?.toString() || '',

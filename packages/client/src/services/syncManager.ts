@@ -111,7 +111,12 @@ export class SyncManager {
         await this.db.updateStatus(job.id, ClientJobStatus.UPLOADING);
 
         try {
-            await this.api.uploadMeeting(job.filePath, job.id, options as UploadOptions);
+            await this.api.uploadMeeting(
+                job.filePath,
+                job.id,
+                job.recordedAt,
+                options as UploadOptions
+            );
 
             // Success: Server has it, reset retries
             await this.db.updateStatus(job.id, ClientJobStatus.PROCESSING);

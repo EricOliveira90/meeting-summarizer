@@ -63,7 +63,9 @@ describe('ApiService', () => {
     const id = 'job-123'
     const mockOptions = {
       language: TranscriptionLanguage.ENGLISH,
-      template: AIPromptTemplate.MEETING
+      template: AIPromptTemplate.MEETING,
+      minSpeakers: 2,
+      maxSpeakers: 5
     };
 
     beforeEach(() => {
@@ -72,21 +74,36 @@ describe('ApiService', () => {
       vi.mocked(fs.createReadStream).mockReturnValue('mock-stream' as any);
     });
 
-    it('successfully uploads and returns the response', async () => {
+    it('creates the persisted Job with canonical Recording metadata', async () => {
       mockAxiosInstance.post.mockResolvedValueOnce({
-        data: { success: true, id: 'job-123', message: 'Uploaded' }
+        data: { success: true, jobId: 'job-123', message: 'Uploaded' }
       });
 
-      const response = await api.uploadMeeting('fake-path.mkv', id, mockOptions);
+      const response = await api.uploadMeeting(
+        'fake-path.mkv',
+        id,
+        '2026-08-20T09:30:00-03:00',
+        mockOptions
+      );
 
-      expect(response.success).toBe(true);
+      expect(response).toEqual({
+        success: true,
+        jobId: 'job-123',
+        message: 'Uploaded'
+      });
       expect(mockAxiosInstance.post).toHaveBeenCalledTimes(1);
 
-      // Verify our headers were passed to Axios correctly
       const postArgs = mockAxiosInstance.post.mock.calls[0];
-      expect(postArgs[0]).toBe('/upload');
-      expect(postArgs[2].headers['x-job-id']).toBe('job-123');
-      expect(postArgs[2].headers['x-api-key']).toBe('test-key');
+      expect(postArgs[0]).toBe('/jobs');
+      expect(postArgs[2].headers).toMatchObject({
+        'x-job-id': 'job-123',
+        'x-recorded-at': '2026-08-20T12:30:00.000Z',
+        'x-language': TranscriptionLanguage.ENGLISH,
+        'x-template': AIPromptTemplate.MEETING,
+        'x-min-speakers': '2',
+        'x-max-speakers': '5',
+        'x-api-key': 'test-key'
+      });
     });
 
     it('triggers the onProgress callback during upload', async () => {
@@ -99,7 +116,13 @@ describe('ApiService', () => {
       });
 
       const onProgress = vi.fn();
-      await api.uploadMeeting('fake-path.mkv', id, mockOptions, onProgress);
+      await api.uploadMeeting(
+        'fake-path.mkv',
+        id,
+        '2026-08-20T09:30:00-03:00',
+        mockOptions,
+        onProgress
+      );
 
       expect(onProgress).toHaveBeenCalledWith(50); // 50/100 = 50%
     });
@@ -107,7 +130,12 @@ describe('ApiService', () => {
     it('throws a local Error if the file does not exist', async () => {
       vi.mocked(fs.existsSync).mockReturnValue(false);
 
-      await expect(api.uploadMeeting('ghost-file.mkv', id, mockOptions))
+      await expect(api.uploadMeeting(
+        'ghost-file.mkv',
+        id,
+        '2026-08-20T09:30:00-03:00',
+        mockOptions
+      ))
         .rejects.toThrow('File not found: ghost-file.mkv');
 
       expect(mockAxiosInstance.post).not.toHaveBeenCalled();

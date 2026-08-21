@@ -36,6 +36,7 @@ export interface IApiService {
   uploadMeeting(
     filePath: string,
     id: string,
+    recordedAt: string,
     options: UploadOptions,
     onProgress?: (percentCompleted: number) => void
   ): Promise<UploadResponse>;
