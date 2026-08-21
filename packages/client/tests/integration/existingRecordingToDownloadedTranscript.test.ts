@@ -43,6 +43,7 @@ interface SuccessOutcome {
   serverJobs: JobRecord[];
   creationRequests: number;
   observedStatuses: JobResponse[];
+  observedStatusSources: RedactionSource[];
   artifactRoot: string;
   transcriptPath: string;
   transcriptText: string;
@@ -65,6 +66,7 @@ interface RejectionOutcome {
 interface ProcessingFailureOutcome {
   expectedStep: JobStep;
   status: JobResponse;
+  statusSource: RedactionSource;
   artifactRoot: string;
   clientJobs: ClientJob[];
   serverJobs: JobRecord[];
@@ -73,6 +75,16 @@ interface ProcessingFailureOutcome {
 }
 
 type TransferFault = 'write' | 'read' | 'mismatch' | 'rename' | 'interrupted';
+
+type RedactionSource = JobRecord & {
+  transcriptText: string;
+  summaryText: string;
+};
+
+interface RedactionJobStore {
+  getById(id: string): Promise<JobRecord | undefined>;
+  replace(job: JobRecord): Promise<void>;
+}
 
 interface TransferFailureOutcome {
   fault: TransferFault;
@@ -124,7 +136,8 @@ describe('Existing Recording to downloaded Transcript', () => {
       { serverStatus: 'COMPLETED', currentStep: JobStep.TRANSCRIPT_READY },
     ]);
     expectOrderedTimestamps(outcome.serverJobs[0]);
-    for (const status of outcome.observedStatuses) {
+    for (const [index, status] of outcome.observedStatuses.entries()) {
+      expectRedactionSource(outcome.observedStatusSources[index]);
       expectRedactedStatus(status, outcome.artifactRoot);
     }
 
@@ -191,6 +204,7 @@ describe('Existing Recording to downloaded Transcript', () => {
         currentStep: outcome.expectedStep,
         failedStep: outcome.expectedStep,
       });
+      expectRedactionSource(outcome.statusSource);
       expectRedactedStatus(outcome.status, outcome.artifactRoot);
       expect(outcome.notebookTranscripts).toEqual([]);
     }
@@ -272,6 +286,13 @@ function expectRedactedStatus(status: JobResponse, artifactRoot: string): void {
   }
 }
 
+function expectRedactionSource(source: RedactionSource): void {
+  expect(source).toMatchObject({
+    transcriptText: PROCESS_CREDENTIAL,
+    summaryText: SUMMARY_SENTINEL,
+  });
+}
+
 async function runIntegratedSuccessJourney(): Promise<SuccessOutcome> {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'existing-recording-'));
   const clientRoot = path.join(root, 'notebook');
@@ -316,11 +337,13 @@ async function runIntegratedSuccessJourney(): Promise<SuccessOutcome> {
     },
     transcriber: {
       async transcribe(_audioPath: string, outputPath: string) {
-        void PROCESS_CREDENTIAL;
         transcriptionEntered.resolve();
         await transcriptionGate.promise;
         await fs.writeFile(outputPath, TRANSCRIPT);
-        return { outputFilePath: outputPath };
+        return {
+          outputFilePath: outputPath,
+          processCredential: PROCESS_CREDENTIAL,
+        };
       },
     },
   };
@@ -386,10 +409,18 @@ async function runIntegratedSuccessJourney(): Promise<SuccessOutcome> {
     clientFileSystem,
   );
   const observedStatuses: JobResponse[] = [];
+  const observedStatusSources: RedactionSource[] = [];
+  const observeStatus = async () => {
+    observedStatusSources.push(
+      await readRedactionSource(jobStore, persistedJob.id),
+    );
+    observedStatuses.push(await api.getJobStatus(persistedJob.id));
+  };
 
   try {
     await runSync(syncManager);
-    observedStatuses.push(await api.getJobStatus(persistedJob.id));
+    await seedRedactionSource(jobStore, persistedJob.id);
+    await observeStatus();
 
     await runSync(syncManager);
     expect(creationRequests).toBe(1);
@@ -397,12 +428,12 @@ async function runIntegratedSuccessJourney(): Promise<SuccessOutcome> {
     queue.resume();
     await extractionEntered.promise;
     await runSync(syncManager);
-    observedStatuses.push(await api.getJobStatus(persistedJob.id));
+    await observeStatus();
 
     extractionGate.resolve();
     await transcriptionEntered.promise;
     await runSync(syncManager);
-    observedStatuses.push(await api.getJobStatus(persistedJob.id));
+    await observeStatus();
 
     transcriptionGate.resolve();
     await waitFor(async () => {
@@ -410,7 +441,7 @@ async function runIntegratedSuccessJourney(): Promise<SuccessOutcome> {
       return job?.currentStep === JobStep.TRANSCRIPT_READY;
     });
     await runSync(syncManager);
-    observedStatuses.push(await api.getJobStatus(persistedJob.id));
+    await observeStatus();
 
     const transcriptPath = clientFileSystem.joinPathsInProjectFolder(
       'transcriptions',
@@ -421,6 +452,7 @@ async function runIntegratedSuccessJourney(): Promise<SuccessOutcome> {
       serverJobs: (await jobStore.getAll()).map((job) => structuredClone(job)),
       creationRequests,
       observedStatuses,
+      observedStatusSources,
       artifactRoot: serverRoot,
       transcriptPath,
       transcriptText: await clientFileSystem.readFile(transcriptPath),
@@ -671,10 +703,12 @@ async function runProcessingFailureJourney(
       return job?.serverStatus === 'FAILED';
     });
     await runSync(syncManager);
+    await seedRedactionSource(jobStore, persistedJob.id);
 
     return {
       expectedStep: failedStep,
       status: await api.getJobStatus(persistedJob.id),
+      statusSource: await readRedactionSource(jobStore, persistedJob.id),
       artifactRoot: serverRoot,
       clientJobs: await db.getAll(),
       serverJobs: (await jobStore.getAll()).map((job) => structuredClone(job)),
@@ -912,6 +946,29 @@ function deferred(): { promise: Promise<void>; resolve(): void } {
     resolve = release;
   });
   return { promise, resolve };
+}
+
+async function seedRedactionSource(
+  store: RedactionJobStore,
+  jobId: string,
+): Promise<void> {
+  const job = await store.getById(jobId);
+  if (!job) throw new Error(`Missing redaction source Job ${jobId}.`);
+
+  Object.assign(job, {
+    transcriptText: PROCESS_CREDENTIAL,
+    summaryText: SUMMARY_SENTINEL,
+  });
+  await store.replace(job);
+}
+
+async function readRedactionSource(
+  store: RedactionJobStore,
+  jobId: string,
+): Promise<RedactionSource> {
+  const job = await store.getById(jobId);
+  if (!job) throw new Error(`Missing redaction source Job ${jobId}.`);
+  return structuredClone(job) as RedactionSource;
 }
 
 async function waitFor(
